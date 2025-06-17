@@ -1,39 +1,35 @@
-﻿// =============================================================================
-// Messaging/Producers/Core/KafkaProducer.cs - Phase 3: 機能分離後のProducer
+﻿
+// =============================================================================
+// src/Messaging/Producers/Core/KafkaProducer.cs
 // =============================================================================
 
+using Confluent.Kafka;
+using KsqlDsl.Avro;
+using KsqlDsl.Communication;
+using KsqlDsl.Messaging.Abstractions;
+using KsqlDsl.Modeling;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Confluent.Kafka;
-using KsqlDsl.Communication; // 既存インターフェース参照
-using KsqlDsl.Messaging.Abstractions;
-using KsqlDsl.Modeling;
-using Microsoft.Extensions.Logging;
 
 namespace KsqlDsl.Messaging.Producers.Core
 {
-    /// <summary>
-    /// Phase 3最適化版: 型安全Producer実装
-    /// 設計理由：機能分離により責務を明確化し、既存Avroシリアライザーとの統合維持
-    /// </summary>
     public class KafkaProducer<T> : IKafkaProducer<T> where T : class
     {
         private readonly IProducer<object, object> _rawProducer;
         private readonly ISerializer<object> _keySerializer;
         private readonly ISerializer<object> _valueSerializer;
         private readonly EntityModel _entityModel;
-        private readonly IProducerMetricsCollector _metricsCollector;
         private readonly ILogger _logger;
         private readonly KafkaProducerStats _stats = new();
         private bool _disposed = false;
 
         public string TopicName { get; }
 
-        // Phase 3: プール管理との統合用
         internal IProducer<object, object> RawProducer => _rawProducer;
 
         public KafkaProducer(
@@ -42,7 +38,6 @@ namespace KsqlDsl.Messaging.Producers.Core
             ISerializer<object> valueSerializer,
             string topicName,
             EntityModel entityModel,
-            IProducerMetricsCollector metricsCollector,
             ILogger logger)
         {
             _rawProducer = rawProducer ?? throw new ArgumentNullException(nameof(rawProducer));
@@ -50,227 +45,20 @@ namespace KsqlDsl.Messaging.Producers.Core
             _valueSerializer = valueSerializer ?? throw new ArgumentNullException(nameof(valueSerializer));
             TopicName = topicName ?? throw new ArgumentNullException(nameof(topicName));
             _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
-            _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-
-        public async Task<KafkaDeliveryResult> SendAsync(T message, KafkaMessageContext? context = null, CancellationToken cancellationToken = default)
+        public async Task<KafkaDeliveryResult> SendAsync(T message, MessageContext? context = null, CancellationToken cancellationToken = default)
         {
             if (message == null)
                 throw new ArgumentNullException(nameof(message));
 
-            using var activity = StartSendActivity("send_single", context);
             var stopwatch = Stopwatch.StartNew();
 
             try
             {
-                var messageContext = ConvertToMessageContext(context);
-                var keyValue = ExtractKeyValue(message);
+                var keyValue = KeyExtractor.ExtractKey(message, _entityModel);
 
-                var kafkaMessage = new Message<object, object>
-                {
-                    Key = keyValue,
-                    Value = message,
-                    Headers = BuildHeaders(messageContext),
-                    Timestamp = new Timestamp(DateTime.UtcNow)
-                };
-
-                var topicPartition = messageContext?.TargetPartition.HasValue == true
-                    ? new TopicPartition(TopicName, new Partition(messageContext.TargetPartition.Value))
-                    : new TopicPartition(TopicName, Partition.Any);
-
-                var deliveryResult = await _rawProducer.ProduceAsync(topicPartition, kafkaMessage, cancellationToken);
-                stopwatch.Stop();
-
-                _metricsCollector.RecordSend(success: true, stopwatch.Elapsed, deliveryResult.Message.Value?.ToString()?.Length ?? 0);
-                UpdateStats(success: true, stopwatch.Elapsed);
-
-                var result = new KafkaDeliveryResult
-                {
-                    Topic = deliveryResult.Topic,
-                    Partition = deliveryResult.Partition.Value,
-                    Offset = deliveryResult.Offset.Value,
-                    Timestamp = deliveryResult.Timestamp.UtcDateTime,
-                    Status = deliveryResult.Status,
-                    Latency = stopwatch.Elapsed
-                };
-
-                activity?.SetTag("kafka.delivery.partition", result.Partition)
-                        ?.SetTag("kafka.delivery.offset", result.Offset)
-                        ?.SetStatus(ActivityStatusCode.Ok);
-
-                return result;
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                _metricsCollector.RecordSend(success: false, stopwatch.Elapsed, 0);
-                UpdateStats(success: false, stopwatch.Elapsed);
-                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// Phase 3改良: バッチ最適化強化版
-        /// </summary>
-        public async Task<KafkaBatchDeliveryResult> SendBatchAsync(IEnumerable<T> messages, KafkaMessageContext? context = null, CancellationToken cancellationToken = default)
-        {
-            if (messages == null)
-                throw new ArgumentNullException(nameof(messages));
-
-            var messageList = messages.ToList();
-            if (messageList.Count == 0)
-            {
-                return new KafkaBatchDeliveryResult
-                {
-                    Topic = TopicName,
-                    AllSuccessful = true
-                };
-            }
-
-            using var activity = StartSendActivity("send_batch", ConvertToMessageContext(context));
-            activity?.SetTag("kafka.batch.size", messageList.Count);
-
-            var stopwatch = Stopwatch.StartNew();
-            var results = new List<KafkaDeliveryResult>();
-            var errors = new List<BatchDeliveryError>();
-
-            try
-            {
-                // Phase 3: バッチ並列送信最適化
-                var batchTasks = new List<Task<(int index, DeliveryResult<object, object>? result, Error? error)>>();
-
-                for (int i = 0; i < messageList.Count; i++)
-                {
-                    var index = i;
-                    var message = messageList[i];
-
-                    var task = SendSingleMessageAsync(message, index, ConvertToMessageContext(context), cancellationToken);
-                    batchTasks.Add(task);
-                }
-
-                // 全タスク完了待機
-                var batchResults = await Task.WhenAll(batchTasks);
-                stopwatch.Stop();
-
-                // 結果集計
-                foreach (var (index, result, error) in batchResults)
-                {
-                    if (error != null)
-                    {
-                        errors.Add(new BatchDeliveryError
-                        {
-                            MessageIndex = index,
-                            Error = error,
-                            OriginalMessage = messageList[index]
-                        });
-                    }
-                    else if (result != null)
-                    {
-                        results.Add(new KafkaDeliveryResult
-                        {
-                            Topic = result.Topic,
-                            Partition = result.Partition.Value,
-                            Offset = result.Offset.Value,
-                            Timestamp = result.Timestamp.UtcDateTime,
-                            Status = result.Status,
-                            Latency = stopwatch.Elapsed
-                        });
-                    }
-                }
-
-                // Phase 3: バッチメトリクス統合
-                var totalBytes = messageList.Sum(m => m?.ToString()?.Length ?? 0);
-                _metricsCollector.RecordBatch(messageList.Count, errors.Count == 0, stopwatch.Elapsed, totalBytes);
-                UpdateBatchStats(messageList.Count, errors.Count == 0, stopwatch.Elapsed);
-
-                var batchResult = new KafkaBatchDeliveryResult
-                {
-                    Topic = TopicName,
-                    TotalMessages = messageList.Count,
-                    SuccessfulCount = results.Count,
-                    FailedCount = errors.Count,
-                    Results = results,
-                    Errors = errors,
-                    TotalLatency = stopwatch.Elapsed
-                };
-
-                activity?.SetTag("kafka.batch.successful", results.Count)
-                        ?.SetTag("kafka.batch.failed", errors.Count)
-                        ?.SetStatus(batchResult.AllSuccessful ? ActivityStatusCode.Ok : ActivityStatusCode.Error);
-
-                _logger.LogDebug("Batch sent: {EntityType} -> {Topic}, {SuccessCount}/{TotalCount} successful ({Duration}ms)",
-                    typeof(T).Name, TopicName, results.Count, messageList.Count, stopwatch.ElapsedMilliseconds);
-
-                return batchResult;
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                _metricsCollector.RecordBatch(messageList.Count, success: false, stopwatch.Elapsed, 0);
-                UpdateBatchStats(messageList.Count, success: false, stopwatch.Elapsed);
-
-                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-
-                _logger.LogError(ex, "Failed to send batch: {EntityType} -> {Topic}, {MessageCount} messages ({Duration}ms)",
-                    typeof(T).Name, TopicName, messageList.Count, stopwatch.ElapsedMilliseconds);
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// 統計情報取得
-        /// </summary>
-        public KafkaProducerStats GetStats()
-        {
-            lock (_stats)
-            {
-                return new KafkaProducerStats
-                {
-                    TotalMessagesSent = _stats.TotalMessagesSent,
-                    SuccessfulMessages = _stats.SuccessfulMessages,
-                    FailedMessages = _stats.FailedMessages,
-                    AverageLatency = _stats.AverageLatency,
-                    MinLatency = _stats.MinLatency,
-                    MaxLatency = _stats.MaxLatency,
-                    LastMessageSent = _stats.LastMessageSent,
-                    TotalBytesSent = _stats.TotalBytesSent,
-                    MessagesPerSecond = _stats.MessagesPerSecond
-                };
-            }
-        }
-
-        /// <summary>
-        /// 保留メッセージフラッシュ
-        /// </summary>
-        public async Task FlushAsync(TimeSpan timeout)
-        {
-            try
-            {
-                _rawProducer.Flush(timeout);
-                await Task.Delay(1); // 非同期メソッドの形式保持
-
-                _logger.LogTrace("Producer flushed: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to flush producer: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
-                throw;
-            }
-        }
-
-        // =============================================================================
-        // Private Helper Methods
-        // =============================================================================
-
-        private async Task<(int index, DeliveryResult<object, object>? result, Error? error)> SendSingleMessageAsync(
-            T message, int index, MessageContext? context, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var keyValue = ExtractKeyValue(message);
                 var kafkaMessage = new Message<object, object>
                 {
                     Key = keyValue,
@@ -279,28 +67,158 @@ namespace KsqlDsl.Messaging.Producers.Core
                     Timestamp = new Timestamp(DateTime.UtcNow)
                 };
 
-                var deliveryResult = await _rawProducer.ProduceAsync(TopicName, kafkaMessage, cancellationToken);
-                return (index, deliveryResult, null);
-            }
-            catch (ProduceException<object, object> ex)
-            {
-                return (index, null, ex.Error);
-            }
-        }
+                var topicPartition = context?.TargetPartition.HasValue == true
+                    ? new TopicPartition(TopicName, new Partition(context.TargetPartition.Value))
+                    : new TopicPartition(TopicName, Partition.Any);
 
-        private object? ExtractKeyValue(T message)
-        {
-            try
-            {
-                return KsqlDsl.Avro.KeyExtractor.ExtractKey(message, _entityModel);
+                var deliveryResult = await _rawProducer.ProduceAsync(topicPartition, kafkaMessage, cancellationToken);
+                stopwatch.Stop();
+
+                UpdateSendStats(success: true, stopwatch.Elapsed);
+
+                return new KafkaDeliveryResult
+                {
+                    Topic = deliveryResult.Topic,
+                    Partition = deliveryResult.Partition.Value,
+                    Offset = deliveryResult.Offset.Value,
+                    Timestamp = deliveryResult.Timestamp.UtcDateTime,
+                    Status = deliveryResult.Status,
+                    Latency = stopwatch.Elapsed
+                };
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to extract key from message: {EntityType}", typeof(T).Name);
-                return null;
+                _logger.LogWarning(ex, "Failed to get assigned partitions: {EntityType}", typeof(T).Name);
+                return new List<TopicPartition>();
             }
         }
 
-        private Headers? BuildHeaders(MessageContext? context)
+        private void EnsureSubscribed()
         {
-            if (
+            if (!_subscribed)
+            {
+                try
+                {
+                    _rawConsumer.Subscribe(TopicName);
+                    _subscribed = true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to subscribe to topic: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                    throw;
+                }
+            }
+        }
+
+        private async Task<KafkaMessage<T>> DeserializeMessageAsync(ConsumeResult<object, object> consumeResult)
+        {
+            await Task.Delay(1);
+
+            try
+            {
+                T value;
+                if (consumeResult.Message.Value != null)
+                {
+                    var deserializedValue = _valueDeserializer.Deserialize(
+                        ReadOnlySpan<byte>.Empty,
+                        false,
+                        new SerializationContext(MessageComponentType.Value, TopicName));
+
+                    value = (T)deserializedValue;
+                }
+                else
+                {
+                    throw new InvalidOperationException("Message value cannot be null");
+                }
+
+                object? key = null;
+                if (consumeResult.Message.Key != null)
+                {
+                    key = _keyDeserializer.Deserialize(
+                        ReadOnlySpan<byte>.Empty,
+                        false,
+                        new SerializationContext(MessageComponentType.Key, TopicName));
+                }
+
+                return new KafkaMessage<T>
+                {
+                    Value = value,
+                    Key = key,
+                    Topic = consumeResult.Topic,
+                    Partition = consumeResult.Partition.Value,
+                    Offset = consumeResult.Offset.Value,
+                    Timestamp = consumeResult.Message.Timestamp.UtcDateTime,
+                    Headers = consumeResult.Message.Headers
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize message: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                throw;
+            }
+        }
+
+        private void UpdateConsumeStats(bool success, TimeSpan processingTime)
+        {
+            lock (_stats)
+            {
+                _stats.TotalMessagesReceived++;
+
+                if (success)
+                    _stats.ProcessedMessages++;
+                else
+                    _stats.FailedMessages++;
+
+                if (_stats.MinProcessingTime == TimeSpan.Zero || processingTime < _stats.MinProcessingTime)
+                    _stats.MinProcessingTime = processingTime;
+                if (processingTime > _stats.MaxProcessingTime)
+                    _stats.MaxProcessingTime = processingTime;
+
+                if (_stats.TotalMessagesReceived == 1)
+                {
+                    _stats.AverageProcessingTime = processingTime;
+                }
+                else
+                {
+                    var totalMs = _stats.AverageProcessingTime.TotalMilliseconds * (_stats.TotalMessagesReceived - 1) + processingTime.TotalMilliseconds;
+                    _stats.AverageProcessingTime = TimeSpan.FromMilliseconds(totalMs / _stats.TotalMessagesReceived);
+                }
+
+                _stats.LastMessageReceived = DateTime.UtcNow;
+            }
+        }
+
+        private void UpdateBatchConsumeStats(int messageCount, TimeSpan processingTime)
+        {
+            lock (_stats)
+            {
+                _stats.TotalMessagesReceived += messageCount;
+                _stats.ProcessedMessages += messageCount;
+                _stats.LastMessageReceived = DateTime.UtcNow;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                try
+                {
+                    if (_subscribed)
+                    {
+                        _rawConsumer.Unsubscribe();
+                        _subscribed = false;
+                    }
+
+                    _rawConsumer.Close();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error disposing consumer: {EntityType}", typeof(T).Name);
+                }
+
+                _disposed = true;
+            }
+        }
+    }
+}
