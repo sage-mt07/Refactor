@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace KsqlDsl.Attributes;
+namespace KsqlDsl.Core.Attributes;
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
 public class TopicAttribute : Attribute
 {

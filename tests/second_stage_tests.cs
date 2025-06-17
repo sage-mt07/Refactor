@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 using Ksql.EntityFrameworkCore;
 using KsqlDsl.Attributes;
 using KsqlDsl.Configuration;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Options;
 using KsqlDsl.Validation;
 using Xunit;

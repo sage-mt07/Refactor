@@ -1,4 +1,4 @@
-﻿using KsqlDsl.Modeling;
+﻿using KsqlDsl.Core.Modeling;
 using KsqlDsl.SchemaRegistry;
 using KsqlDsl.Validation;
 using System;

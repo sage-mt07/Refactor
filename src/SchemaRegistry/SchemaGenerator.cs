@@ -3,9 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
-
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Ksql;
-using KsqlDsl.Modeling;
 
 namespace KsqlDsl.SchemaRegistry;
 

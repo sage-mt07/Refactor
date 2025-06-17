@@ -1,4 +1,5 @@
-﻿using KsqlDsl.Modeling;
+﻿using KsqlDsl.Core.Attributes;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.SchemaRegistry;
 using KsqlDsl.Serialization.Abstractions;
 using System;
@@ -114,7 +115,7 @@ namespace KsqlDsl.Serialization.Avro.Management
         {
             var fields = new List<AvroField>();
 
-            foreach (var prop in keyProperties.OrderBy(p => p.GetCustomAttribute<KsqlDsl.Attributes.KeyAttribute>()?.Order ?? 0))
+            foreach (var prop in keyProperties.OrderBy(p => p.GetCustomAttribute<KeyAttribute>()?.Order ?? 0))
             {
                 fields.Add(new AvroField
                 {
@@ -235,12 +236,12 @@ namespace KsqlDsl.Serialization.Avro.Management
         private PropertyInfo[] GetKeyProperties(Type entityType)
         {
             var allProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KsqlDsl.Attributes.KeyAttribute>() != null);
+            var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
 
             Array.Sort(keyProperties, (p1, p2) =>
             {
-                var order1 = p1.GetCustomAttribute<KsqlDsl.Attributes.KeyAttribute>()?.Order ?? 0;
-                var order2 = p2.GetCustomAttribute<KsqlDsl.Attributes.KeyAttribute>()?.Order ?? 0;
+                var order1 = p1.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+                var order2 = p2.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
                 return order1.CompareTo(order2);
             });
 
@@ -255,7 +256,7 @@ namespace KsqlDsl.Serialization.Avro.Management
 
         private string GetTopicName(Type entityType)
         {
-            var topicAttribute = entityType.GetCustomAttribute<KsqlDsl.Attributes.TopicAttribute>();
+            var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
             return topicAttribute?.TopicName ?? entityType.Name;
         }
 

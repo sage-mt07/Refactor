@@ -1,5 +1,4 @@
-﻿
-using KsqlDsl.Attributes;
+﻿using KsqlDsl.Core.Attributes;
 using KsqlDsl.SchemaRegistry;
 using KsqlDsl.Services;
 using KsqlDsl.Validation;
@@ -9,7 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace KsqlDsl.Modeling;
+namespace KsqlDsl.Core.Modeling;
 
 public class ModelBuilder
 {
@@ -267,7 +266,7 @@ public class ModelBuilder
 
         foreach (var property in properties)
         {
-            if (property.GetCustomAttribute<KsqlDsl.Modeling.KafkaIgnoreAttribute>() != null)
+            if (property.GetCustomAttribute<KafkaIgnoreAttribute>() != null)
                 continue;
 
             if (IsNullableProperty(property))
@@ -381,7 +380,7 @@ public class ModelBuilder
         visitedTypes.Add(type);
 
         var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.GetCustomAttribute<KsqlDsl.Modeling.KafkaIgnoreAttribute>() == null);
+            .Where(p => p.GetCustomAttribute<KafkaIgnoreAttribute>() == null);
 
         foreach (var property in properties)
         {

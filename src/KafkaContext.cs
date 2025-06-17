@@ -1,64 +1,134 @@
-﻿using KsqlDsl.Modeling;
-using KsqlDsl.Options;
-using KsqlDsl.Services;
-using KsqlDsl.Communication; // Phase1: 新Manager使用のためインポート追加
+// src/KafkaContext.cs - Core層統合完全版
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Core.Context;
+using KsqlDsl.Core.Modeling;
+using KsqlDsl.Options;
+using KsqlDsl.Services;
+using KsqlDsl.Communication;
+using KsqlDsl.Validation;
 
-namespace KsqlDsl;
-
-public abstract class KafkaContext : IDisposable, IAsyncDisposable
+namespace KsqlDsl
 {
-    private readonly Lazy<ModelBuilder> _modelBuilder;
-    private readonly Dictionary<Type, object> _eventSets = new();
-
-    // Phase1変更：旧Service → 新Manager使用
-    private readonly Lazy<KafkaProducerManager> _producerManager;
-    private readonly Lazy<KafkaConsumerManager> _consumerManager;
-
-    // 後方互換性維持のため、旧Serviceは内部的に新Managerをラップ
-    [Obsolete("内部実装は新Managerに移行されました。直接アクセス非推奨", false)]
-    private readonly Lazy<KafkaProducerService> _producerService;
-    [Obsolete("内部実装は新Managerに移行されました。直接アクセス非推奨", false)]
-    private readonly Lazy<KafkaConsumerService> _consumerService;
-
-    private AvroSchemaRegistrationService? _schemaRegistrationService;
-    private bool _disposed = false;
-    private bool _modelBuilt = false;
-
-    public KafkaContextOptions Options { get; private set; }
-
-    protected KafkaContext()
-    {
-        var optionsBuilder = new KafkaContextOptionsBuilder();
-        OnConfiguring(optionsBuilder);
-        Options = optionsBuilder.Build();
-
-        InitializeServices();
-        InitializeEventSets();
-    }
-
-    protected KafkaContext(KafkaContextOptions options)
-    {
-        Options = options ?? throw new ArgumentNullException(nameof(options));
-
-        InitializeServices();
-        InitializeEventSets();
-    }
-
     /// <summary>
-    /// Phase1変更：新Manager使用でサービス初期化
+    /// Core層統合KafkaContext
+    /// 設計理由：Core抽象化を継承し、上位層機能を統合
     /// </summary>
-    private void InitializeServices()
+    public abstract class KafkaContext : KafkaContextCore
     {
-        _modelBuilder = new Lazy<ModelBuilder>(() =>
-        {
-            var modelBuilder = new ModelBuilder(Options.ValidationMode);
+        // 上位層サービス（Phase1移行対応）
+        private readonly Lazy<KafkaProducerManager> _producerManager;
+        private readonly Lazy<KafkaConsumerManager> _consumerManager;
+        
+        // 後方互換性維持
+        [Obsolete("内部実装はCore層統合されました。GetProducerManager()を使用してください", false)]
+        private readonly Lazy<KafkaProducerService> _producerService;
+        [Obsolete("内部実装はCore層統合されました。GetConsumerManager()を使用してください", false)]
+        private readonly Lazy<KafkaConsumerService> _consumerService;
 
+        private AvroSchemaRegistrationService? _schemaRegistrationService;
+
+        protected KafkaContext() : base()
+        {
+            InitializeUpperLayerServices();
+        }
+
+        protected KafkaContext(KafkaContextOptions options) : base(options)
+        {
+            InitializeUpperLayerServices();
+        }
+
+        /// <summary>
+        /// Core層EventSet実装（上位層機能統合）
+        /// </summary>
+        protected override IEntitySet<T> CreateEntitySet<T>(EntityModel entityModel)
+        {
+            return new EventSetWithServices<T>(this, entityModel);
+        }
+
+        private void InitializeUpperLayerServices()
+        {
+            // 上位層Manager初期化
+            _producerManager = new Lazy<KafkaProducerManager>(() =>
+            {
+                Console.WriteLine("[INFO] Core層統合: KafkaProducerManager初期化");
+                return new KafkaProducerManager(
+                    null!, // EnhancedAvroSerializerManager
+                    null!, // ProducerPool  
+                    Microsoft.Extensions.Options.Options.Create(new KafkaProducerConfig()),
+                    null!  // ILogger
+                );
+            });
+
+            _consumerManager = new Lazy<KafkaConsumerManager>(() =>
+            {
+                Console.WriteLine("[INFO] Core層統合: KafkaConsumerManager初期化");
+                return new KafkaConsumerManager(
+                    null!, // EnhancedAvroSerializerManager
+                    null!, // ConsumerPool
+                    Microsoft.Extensions.Options.Options.Create(new KafkaConsumerConfig()),
+                    null!  // ILogger
+                );
+            });
+
+            // 後方互換性サービス
+            _producerService = new Lazy<KafkaProducerService>(() =>
+            {
+                Console.WriteLine("[WARNING] 旧KafkaProducerService使用：Core層統合後は非推奨");
+                try
+                {
+                    return new KafkaProducerService(Options);
+                }
+                catch (NotSupportedException)
+                {
+                    throw new InvalidOperationException(
+                        "KafkaProducerServiceは廃止されました。Core層統合APIを使用してください。");
+                }
+            });
+
+            _consumerService = new Lazy<KafkaConsumerService>(() =>
+            {
+                Console.WriteLine("[WARNING] 旧KafkaConsumerService使用：Core層統合後は非推奨");
+                try
+                {
+                    return new KafkaConsumerService(Options);
+                }
+                catch (NotSupportedException)
+                {
+                    throw new InvalidOperationException(
+                        "KafkaConsumerServiceは廃止されました。Core層統合APIを使用してください。");
+                }
+            });
+        }
+
+        // Core層統合API
+        internal KafkaProducerManager GetProducerManager() => _producerManager.Value;
+        internal KafkaConsumerManager GetConsumerManager() => _consumerManager.Value;
+
+        // 後方互換性API（廃止予定）
+        [Obsolete("GetProducerService()は廃止予定です。Core層統合APIを使用してください。", false)]
+        internal KafkaProducerService GetProducerService() => _producerService.Value;
+
+        [Obsolete("GetConsumerService()は廃止予定です。Core層統合APIを使用してください。", false)]
+        internal KafkaConsumerService GetConsumerService() => _consumerService.Value;
+
+        public override async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
+        {
+            // Core層のモデル構築とスキーマ登録
+            var modelBuilder = GetModelBuilder();
+
+            if (Options.EnableDebugLogging)
+            {
+                Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: Core層統合インフラ構築開始");
+                Console.WriteLine(modelBuilder.GetModelSummary());
+            }
+
+            // スキーマ自動登録
             if (Options.EnableAutoSchemaRegistration)
             {
                 _schemaRegistrationService = new AvroSchemaRegistrationService(
@@ -66,286 +136,249 @@ public abstract class KafkaContext : IDisposable, IAsyncDisposable
                     Options.ValidationMode,
                     Options.EnableDebugLogging);
 
-                modelBuilder.SetSchemaRegistrationService(_schemaRegistrationService);
+                try
+                {
+                    Console.WriteLine("[INFO] Core層統合: Avroスキーマ自動登録開始");
+                    await _schemaRegistrationService.RegisterAllSchemasAsync(GetEntityModels());
+                    Console.WriteLine("[INFO] Core層統合: Avroスキーマ自動登録完了");
+                }
+                catch (Exception ex)
+                {
+                    if (Options.ValidationMode == ValidationMode.Strict)
+                    {
+                        throw new InvalidOperationException($"Core層統合: スキーマ自動登録失敗 - {ex.Message}", ex);
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[WARNING] Core層統合: スキーマ自動登録失敗（Relaxedモードのため続行） - {ex.Message}");
+                    }
+                }
             }
 
-            OnModelCreating(modelBuilder);
-            modelBuilder.Build();
-            return modelBuilder;
-        });
+            await Task.Delay(1, cancellationToken);
 
-        // Phase1変更：新Manager使用
-        _producerManager = new Lazy<KafkaProducerManager>(() =>
-        {
-            // 実際の実装では、EnhancedKafkaProducerManagerを初期化
-            // ここでは概念実装として簡略化
-            Console.WriteLine("[INFO] Phase1: KafkaProducerManager初期化（EnhancedKafkaProducerManager使用）");
-            return new KafkaProducerManager(
-                null!, // EnhancedAvroSerializerManager
-                null!, // ProducerPool  
-                Microsoft.Extensions.Options.Options.Create(new KafkaProducerConfig()),
-                null!  // ILogger
-            );
-        });
-
-        _consumerManager = new Lazy<KafkaConsumerManager>(() =>
-        {
-            Console.WriteLine("[INFO] Phase1: KafkaConsumerManager初期化（型安全Consumer使用）");
-            return new KafkaConsumerManager(
-                null!, // EnhancedAvroSerializerManager
-                null!, // ConsumerPool
-                Microsoft.Extensions.Options.Options.Create(new KafkaConsumerConfig()),
-                null!  // ILogger
-            );
-        });
-
-        // 後方互換性：旧Service（廃止予定）
-        _producerService = new Lazy<KafkaProducerService>(() =>
-        {
-            Console.WriteLine("[WARNING] 旧KafkaProducerService使用検出：新KafkaProducerManagerへの移行を推奨");
-            try
+            if (Options.EnableDebugLogging)
             {
-                return new KafkaProducerService(Options);
+                Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: Core層統合インフラ構築完了");
+                Console.WriteLine(GetCoreDiagnostics());
             }
-            catch (NotSupportedException)
+        }
+
+        public async Task<List<string>> GetRegisteredSchemasAsync()
+        {
+            if (_schemaRegistrationService == null)
+                return new List<string>();
+            return await _schemaRegistrationService.GetRegisteredSchemasAsync();
+        }
+
+        public async Task<bool> CheckEntitySchemaCompatibilityAsync<T>() where T : class
+        {
+            if (_schemaRegistrationService == null)
+                return false;
+
+            var entityModel = GetModelBuilder().GetEntityModel<T>();
+            if (entityModel == null)
+                return false;
+
+            var topicName = entityModel.TopicAttribute?.TopicName ?? typeof(T).Name;
+            var valueSchema = KsqlDsl.SchemaRegistry.SchemaGenerator.GenerateSchema<T>();
+
+            return await _schemaRegistrationService.CheckSchemaCompatibilityAsync($"{topicName}-value", valueSchema);
+        }
+
+        public string GetCoreDiagnostics()
+        {
+            var diagnostics = new List<string>
             {
-                // Phase1：旧Serviceは廃止のため、例外をキャッチして代替手段を提供
-                throw new InvalidOperationException(
-                    "KafkaProducerServiceは廃止されました。" +
-                    "GetProducerManager()を使用して新しいAPIにアクセスしてください。");
-            }
-        });
+                "=== Core層統合診断情報 ===",
+                $"Base Context: {base.GetDiagnostics()}",
+                "",
+                "=== 上位層サービス状態 ===",
+                $"ProducerManager: {(_producerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
+                $"ConsumerManager: {(_consumerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
+                $"SchemaRegistration: {(_schemaRegistrationService != null ? "有効" : "無効")}",
+                "",
+                "=== 後方互換性状態 ===",
+                $"旧ProducerService: {(_producerService.IsValueCreated ? "使用中（非推奨）" : "未使用")}",
+                $"旧ConsumerService: {(_consumerService.IsValueCreated ? "使用中（非推奨）" : "未使用")}"
+            };
 
-        _consumerService = new Lazy<KafkaConsumerService>(() =>
-        {
-            Console.WriteLine("[WARNING] 旧KafkaConsumerService使用検出：新KafkaConsumerManagerへの移行を推奨");
-            try
+            if (Options.TopicOverrideService.GetAllOverrides().Any())
             {
-                return new KafkaConsumerService(Options);
+                diagnostics.Add("");
+                diagnostics.Add("=== トピック上書き設定 ===");
+                diagnostics.Add(Options.TopicOverrideService.GetOverrideSummary());
             }
-            catch (NotSupportedException)
+
+            return string.Join(Environment.NewLine, diagnostics);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
             {
-                // Phase1：旧Serviceは廃止のため、例外をキャッチして代替手段を提供
-                throw new InvalidOperationException(
-                    "KafkaConsumerServiceは廃止されました。" +
-                    "GetConsumerManager()を使用して新しいAPIにアクセスしてください。");
+                // 上位層サービスの破棄
+                if (_producerManager.IsValueCreated)
+                    _producerManager.Value.Dispose();
+
+                if (_consumerManager.IsValueCreated)
+                    _consumerManager.Value.Dispose();
+
+                // 後方互換性サービスの破棄
+                if (_producerService.IsValueCreated)
+                {
+                    try { _producerService.Value.Dispose(); }
+                    catch (NotSupportedException) { /* 廃止済みのため無視 */ }
+                }
+
+                if (_consumerService.IsValueCreated)
+                {
+                    try { _consumerService.Value.Dispose(); }
+                    catch (NotSupportedException) { /* 廃止済みのため無視 */ }
+                }
+
+                if (Options.EnableDebugLogging)
+                    Console.WriteLine("[DEBUG] KafkaContext.Dispose: Core層統合リソース解放完了");
             }
-        });
-    }
 
-    protected abstract void OnModelCreating(ModelBuilder modelBuilder);
-    protected virtual void OnConfiguring(KafkaContextOptionsBuilder optionsBuilder) { }
-
-    // Phase1変更：新Manager使用の内部アクセサ
-    internal KafkaProducerManager GetProducerManager() => _producerManager.Value;
-    internal KafkaConsumerManager GetConsumerManager() => _consumerManager.Value;
-
-    // 後方互換性維持：旧Service使用（廃止予定警告付き）
-    [Obsolete("GetProducerService()は廃止予定です。GetProducerManager()を使用してください。", false)]
-    internal KafkaProducerService GetProducerService() => _producerService.Value;
-
-    [Obsolete("GetConsumerService()は廃止予定です。GetConsumerManager()を使用してください。", false)]
-    internal KafkaConsumerService GetConsumerService() => _consumerService.Value;
-
-    private void InitializeEventSets()
-    {
-        var contextType = GetType();
-        var eventSetProperties = contextType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.PropertyType.IsGenericType &&
-                       p.PropertyType.GetGenericTypeDefinition() == typeof(EventSet<>))
-            .ToArray();
-
-        foreach (var property in eventSetProperties)
-        {
-            var entityType = property.PropertyType.GetGenericArguments()[0];
-        }
-    }
-
-    public EventSet<T> Set<T>() where T : class
-    {
-        var entityType = typeof(T);
-
-        if (_eventSets.TryGetValue(entityType, out var existingSet))
-            return (EventSet<T>)existingSet;
-
-        var modelBuilder = _modelBuilder.Value;
-        _modelBuilt = true;
-
-        var entityModel = modelBuilder.GetEntityModel<T>();
-        if (entityModel == null)
-        {
-            throw new InvalidOperationException(
-                $"エンティティ {entityType.Name} がModelBuilderに登録されていません。" +
-                $"OnModelCreating()内でmodelBuilder.Event<{entityType.Name}>()を呼び出してください。");
+            base.Dispose(disposing);
         }
 
-        var eventSet = new EventSet<T>(this, entityModel);
-        _eventSets[entityType] = eventSet;
-        return eventSet;
-    }
-
-    public object GetEventSet(Type entityType)
-    {
-        var setMethod = typeof(KafkaContext).GetMethod(nameof(Set))!.MakeGenericMethod(entityType);
-        return setMethod.Invoke(this, null)!;
-    }
-
-    public ModelBuilder GetModelBuilder() => _modelBuilder.Value;
-    public Dictionary<Type, EntityModel> GetEntityModels() => _modelBuilder.Value.GetEntityModels();
-
-    public async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
-    {
-        var modelBuilder = _modelBuilder.Value;
-
-        if (Options.EnableDebugLogging)
+        protected override async ValueTask DisposeAsyncCore()
         {
-            Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: インフラストラクチャ作成開始");
-            Console.WriteLine("[INFO] Phase1: 新Manager使用でインフラ構築");
-            Console.WriteLine(modelBuilder.GetModelSummary());
-        }
-
-        await Task.Delay(1, cancellationToken);
-
-        if (Options.EnableDebugLogging)
-            Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: インフラストラクチャ作成完了");
-    }
-
-    public void EnsureCreated() => EnsureCreatedAsync().GetAwaiter().GetResult();
-
-    public virtual async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-    {
-        await Task.Delay(1, cancellationToken);
-
-        if (Options.EnableDebugLogging)
-            Console.WriteLine("[DEBUG] KafkaContext.SaveChangesAsync: Kafka流では通常不要（AddAsync時に即時送信）");
-
-        return 0;
-    }
-
-    public virtual int SaveChanges() => SaveChangesAsync().GetAwaiter().GetResult();
-
-    public async Task<List<string>> GetRegisteredSchemasAsync()
-    {
-        var modelBuilder = _modelBuilder.Value;
-        return await modelBuilder.GetRegisteredSchemasAsync();
-    }
-
-    public async Task<bool> CheckEntitySchemaCompatibilityAsync<T>() where T : class
-    {
-        var modelBuilder = _modelBuilder.Value;
-        return await modelBuilder.CheckEntitySchemaCompatibilityAsync<T>();
-    }
-
-    public string GetDiagnostics()
-    {
-        var diagnostics = new List<string>
-        {
-            $"KafkaContext: {GetType().Name}",
-            $"Connection: {Options.ConnectionString}",
-            $"Schema Registry: {Options.SchemaRegistryUrl}",
-            $"Validation Mode: {Options.ValidationMode}",
-            $"Consumer Group: {Options.ConsumerGroupId}",
-            $"Auto Schema Registration: {Options.EnableAutoSchemaRegistration}",
-            $"Model Built: {_modelBuilt}",
-            $"EventSets Count: {_eventSets.Count}",
-            "", // Phase1変更情報
-            "=== Phase1変更情報 ===",
-            "✅ ProducerService → ProducerManager移行済み",
-            "✅ ConsumerService → ConsumerManager移行済み",
-            "⚠️  旧Serviceは後方互換性のため維持（廃止予定）"
-        };
-
-        if (_modelBuilt)
-        {
-            diagnostics.Add("");
-            diagnostics.Add(_modelBuilder.Value.GetModelSummary());
-        }
-
-        if (Options.TopicOverrideService.GetAllOverrides().Any())
-        {
-            diagnostics.Add("");
-            diagnostics.Add(Options.TopicOverrideService.GetOverrideSummary());
-        }
-
-        return string.Join(Environment.NewLine, diagnostics);
-    }
-
-    public void Dispose()
-    {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (!_disposed && disposing)
-        {
-            _eventSets.Clear();
-
-            // Phase1変更：新Manager使用
+            // 上位層サービスの非同期破棄
             if (_producerManager.IsValueCreated)
                 _producerManager.Value.Dispose();
 
             if (_consumerManager.IsValueCreated)
                 _consumerManager.Value.Dispose();
 
-            // 旧Service（使用されていた場合のみ）
-            if (_producerService.IsValueCreated)
-            {
-                try { _producerService.Value.Dispose(); }
-                catch (NotSupportedException) { /* 廃止済みのため無視 */ }
-            }
-
-            if (_consumerService.IsValueCreated)
-            {
-                try { _consumerService.Value.Dispose(); }
-                catch (NotSupportedException) { /* 廃止済みのため無視 */ }
-            }
-
-            if (Options.EnableDebugLogging)
-                Console.WriteLine("[DEBUG] KafkaContext.Dispose: リソース解放完了（Phase1：新Manager使用）");
-
-            _disposed = true;
+            await base.DisposeAsyncCore();
         }
-    }
 
-    public async ValueTask DisposeAsync()
-    {
-        await DisposeAsyncCore();
-        Dispose(false);
-        GC.SuppressFinalize(this);
-    }
-
-    protected virtual async ValueTask DisposeAsyncCore()
-    {
-        // Phase1変更：新Manager使用
-        if (_producerManager.IsValueCreated)
-            _producerManager.Value.Dispose();
-
-        if (_consumerManager.IsValueCreated)
-            _consumerManager.Value.Dispose();
-
-        // 旧Service（廃止予定）
-        if (_producerService.IsValueCreated)
+        public override string ToString()
         {
-            try { _producerService.Value.Dispose(); }
-            catch (NotSupportedException) { /* 廃止済みのため無視 */ }
+            return $"{base.ToString()} [Core層統合]";
         }
-
-        if (_consumerService.IsValueCreated)
-        {
-            try { _consumerService.Value.Dispose(); }
-            catch (NotSupportedException) { /* 廃止済みのため無視 */ }
-        }
-
-        await Task.Delay(1);
     }
 
-    public override string ToString()
+    /// <summary>
+    /// 上位層サービス統合EventSet
+    /// 設計理由：Core抽象化を実装し、Producer/Consumer機能を提供
+    /// </summary>
+    internal class EventSetWithServices<T> : EventSet<T> where T : class
     {
-        var connectionInfo = !string.IsNullOrEmpty(Options.ConnectionString)
-            ? Options.ConnectionString
-            : "未設定";
-        return $"{GetType().Name} → {connectionInfo} [Phase1: 新Manager使用]";
+        private readonly KafkaContext _kafkaContext;
+
+        public EventSetWithServices(KafkaContext context, EntityModel entityModel) 
+            : base(context, entityModel)
+        {
+            _kafkaContext = context;
+        }
+
+        public EventSetWithServices(KafkaContext context, EntityModel entityModel, System.Linq.Expressions.Expression expression)
+            : base(context, entityModel, expression)
+        {
+            _kafkaContext = context;
+        }
+
+        /// <summary>
+        /// Core抽象化実装：Producer機能
+        /// </summary>
+        protected override async Task SendEntityAsync(T entity, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var producerManager = _kafkaContext.GetProducerManager();
+                var producer = await producerManager.GetProducerAsync<T>();
+
+                try
+                {
+                    var context = new KafkaMessageContext
+                    {
+                        MessageId = Guid.NewGuid().ToString(),
+                        Tags = new Dictionary<string, object>
+                        {
+                            ["entity_type"] = typeof(T).Name,
+                            ["method"] = "Core.SendEntityAsync"
+                        }
+                    };
+
+                    await producer.SendAsync(entity, context, cancellationToken);
+                }
+                finally
+                {
+                    producerManager.ReturnProducer(producer);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Core層統合: Entity送信失敗 - {typeof(T).Name}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Core抽象化実装：Producer一括機能
+        /// </summary>
+        protected override async Task SendEntitiesAsync(IEnumerable<T> entities, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var producerManager = _kafkaContext.GetProducerManager();
+                
+                var batchContext = new KafkaMessageContext
+                {
+                    MessageId = Guid.NewGuid().ToString(),
+                    Tags = new Dictionary<string, object>
+                    {
+                        ["entity_type"] = typeof(T).Name,
+                        ["method"] = "Core.SendEntitiesAsync",
+                        ["batch_size"] = entities.Count()
+                    }
+                };
+
+                var batchResult = await producerManager.SendBatchOptimizedAsync(entities, batchContext, cancellationToken);
+
+                if (!batchResult.AllSuccessful)
+                {
+                    var failureDetails = string.Join(", ",
+                        batchResult.Errors.Select(e => $"Index {e.MessageIndex}: {e.Error?.Reason}"));
+
+                    throw new KafkaBatchSendException(
+                        $"Core層統合: バッチ送信部分失敗 - {batchResult.FailedCount}/{batchResult.TotalMessages}件失敗. Details: {failureDetails}",
+                        batchResult);
+                }
+            }
+            catch (Exception ex) when (!(ex is KafkaBatchSendException))
+            {
+                throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(T).Name}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Core抽象化実装：Consumer機能
+        /// </summary>
+        protected override List<T> ExecuteQuery<TResult>(string ksqlQuery)
+        {
+            try
+            {
+                // Phase2でConsumerManagerに移行予定
+                // 現在は既存Consumer使用（廃止予定警告付き）
+                var consumerService = _kafkaContext.GetConsumerService();
+                var results = consumerService.Query<T>(ksqlQuery, GetEntityModel());
+                return results;
+            }
+            catch (NotSupportedException ex)
+            {
+                // Core層統合フォールバック
+                Console.WriteLine("[INFO] 旧ConsumerService廃止のため、Core層統合Consumerに移行中...");
+                throw new InvalidOperationException(
+                    $"Core層統合: Consumer機能は移行中です。Phase2完了後に新APIを使用してください。原因: {ex.Message}", ex);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Core層統合: クエリ実行失敗 - {typeof(T).Name}: {ex.Message}", ex);
+            }
+        }
     }
 }

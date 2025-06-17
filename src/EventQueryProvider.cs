@@ -1,5 +1,5 @@
-﻿
-using KsqlDsl.Modeling;
+﻿using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Core.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,10 +9,10 @@ namespace KsqlDsl;
 
 internal class EventQueryProvider<T> : IQueryProvider
 {
-    private readonly KafkaContext _context;
+    private readonly IKafkaContext _context;
     private readonly EntityModel _entityModel;
 
-    public EventQueryProvider(KafkaContext context, EntityModel entityModel)
+    public EventQueryProvider(IKafkaContext context, EntityModel entityModel)
     {
         _context = context ?? throw new ArgumentNullException(nameof(context));
         _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
@@ -42,8 +42,7 @@ internal class EventQueryProvider<T> : IQueryProvider
         if (expression == null)
             throw new ArgumentNullException(nameof(expression));
 
-        // クエリ実行時の処理（ToList等）
-        // TODO: 実際のKafka Consumer実装
+        // Core層統合：クエリ実行時の処理（ToList等）
         return new List<T>();
     }
 

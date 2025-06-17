@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using Confluent.Kafka;
 using Confluent.SchemaRegistry.Serdes;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.SchemaRegistry;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

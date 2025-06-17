@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Confluent.Kafka;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Modeling;
 using Microsoft.Extensions.Logging;
 
 namespace KsqlDsl.Communication;

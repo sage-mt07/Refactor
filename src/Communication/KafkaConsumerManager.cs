@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Confluent.Kafka;
 using KsqlDsl.Avro;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Modeling;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 

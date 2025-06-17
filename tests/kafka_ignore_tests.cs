@@ -1,8 +1,8 @@
 using System;
 using System.Linq;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Ksql;
 using KsqlDsl.Metadata;
-using KsqlDsl.Modeling; // Added for KafkaIgnoreAttribute and KafkaKeyAttribute
 using Xunit;
 
 namespace KsqlDsl.Tests

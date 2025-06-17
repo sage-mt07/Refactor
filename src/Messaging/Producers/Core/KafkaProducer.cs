@@ -6,8 +6,8 @@
 using Confluent.Kafka;
 using KsqlDsl.Avro;
 using KsqlDsl.Communication;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Messaging.Abstractions;
-using KsqlDsl.Modeling;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;

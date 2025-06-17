@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace KsqlDsl.Attributes;
+namespace KsqlDsl.Core.Attributes;
 
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 public class KeyAttribute : Attribute

@@ -4,7 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Query.Abstractions;
 
 namespace KsqlDsl.Query.EventSets

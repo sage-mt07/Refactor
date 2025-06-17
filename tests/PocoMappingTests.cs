@@ -1,5 +1,5 @@
 using KsqlDsl.Attributes;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Options;
 using Xunit;
 

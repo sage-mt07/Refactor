@@ -1,6 +1,6 @@
 using System;
 
-namespace KsqlDsl.Modeling
+namespace KsqlDsl.Core.Modeling
 {
     /// <summary>
     /// Marks a property to be excluded from Kafka schema generation and KSQL CREATE statements.

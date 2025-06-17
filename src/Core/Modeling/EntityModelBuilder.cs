@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace KsqlDsl.Modeling;
+namespace KsqlDsl.Core.Modeling;
 
 public class EntityModelBuilder<T> where T : class
 {

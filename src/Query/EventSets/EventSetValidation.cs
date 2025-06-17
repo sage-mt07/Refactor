@@ -1,4 +1,5 @@
-﻿using KsqlDsl.Modeling;
+﻿using KsqlDsl.Core.Attributes;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Validation;
 using System;
 using System.Collections.Generic;
@@ -118,7 +119,7 @@ namespace KsqlDsl.Query.EventSets
                 var value = property.GetValue(entity);
 
                 // MaxLength validation for string properties
-                var maxLengthAttr = property.GetCustomAttribute<KsqlDsl.Attributes.MaxLengthAttribute>();
+                var maxLengthAttr = property.GetCustomAttribute<MaxLengthAttribute>();
                 if (maxLengthAttr != null && value is string stringValue)
                 {
                     if (stringValue.Length > maxLengthAttr.Length)
@@ -172,7 +173,7 @@ namespace KsqlDsl.Query.EventSets
             // 全プロパティがシリアライズ可能かチェック
             foreach (var property in properties)
             {
-                if (property.GetCustomAttribute<KsqlDsl.Modeling.KafkaIgnoreAttribute>() != null)
+                if (property.GetCustomAttribute<KafkaIgnoreAttribute>() != null)
                     continue;
 
                 if (!IsSerializableType(property.PropertyType))
@@ -205,7 +206,7 @@ namespace KsqlDsl.Query.EventSets
         private bool IsRequiredProperty(PropertyInfo property)
         {
             // キープロパティは必須
-            if (property.GetCustomAttribute<KsqlDsl.Attributes.KeyAttribute>() != null)
+            if (property.GetCustomAttribute<KeyAttribute>() != null)
                 return true;
 
             // Nullable型は非必須

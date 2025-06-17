@@ -2,8 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using KsqlDsl.Attributes;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Attributes;
+using KsqlDsl.Core.Modeling;
 
 namespace KsqlDsl.Avro
 {

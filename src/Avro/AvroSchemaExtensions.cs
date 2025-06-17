@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
-using KsqlDsl.Modeling;
 using KsqlDsl.SchemaRegistry;
-using KsqlDsl.Attributes;
+using KsqlDsl.Core.Attributes;
+using KsqlDsl.Core.Modeling;
 
 namespace KsqlDsl.Avro
 {
@@ -111,7 +111,7 @@ namespace KsqlDsl.Avro
 
             foreach (var property in properties)
             {
-                if (property.GetCustomAttribute<KsqlDsl.Modeling.KafkaIgnoreAttribute>() != null)
+                if (property.GetCustomAttribute<KafkaIgnoreAttribute>() != null)
                     continue;
 
                 fields.Add(new AvroField

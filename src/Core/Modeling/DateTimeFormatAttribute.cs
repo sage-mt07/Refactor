@@ -1,4 +1,4 @@
-namespace KsqlDsl.Modeling;
+namespace KsqlDsl.Core.Modeling;
 
 using System;
 

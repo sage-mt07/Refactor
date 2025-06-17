@@ -1,4 +1,4 @@
-﻿using KsqlDsl.Modeling;
+﻿using KsqlDsl.Core.Modeling;
 using KsqlDsl.Query.Abstractions;
 using KsqlDsl.Query.Translation;
 using System;

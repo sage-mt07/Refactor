@@ -1,9 +1,9 @@
-﻿using KsqlDsl.Attributes;
+﻿using KsqlDsl.Core.Attributes;
 using KsqlDsl.Validation;
 using System;
 using System.Reflection;
 
-namespace KsqlDsl.Modeling;
+namespace KsqlDsl.Core.Modeling;
 
 public class EntityModel
 {

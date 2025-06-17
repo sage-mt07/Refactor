@@ -1,5 +1,6 @@
 ﻿using Confluent.Kafka;
-using KsqlDsl.Modeling;
+using KsqlDsl.Core.Attributes;
+using KsqlDsl.Core.Modeling;
 using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using Microsoft.Extensions.Logging;
@@ -220,9 +221,9 @@ namespace KsqlDsl.Serialization.Avro.Cache
         private EntityModel GetEntityModel<TEntity>() where TEntity : class
         {
             var entityType = typeof(TEntity);
-            var topicAttribute = entityType.GetCustomAttribute<KsqlDsl.Attributes.TopicAttribute>();
+            var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
             var allProperties = entityType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KsqlDsl.Attributes.KeyAttribute>() != null);
+            var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
 
             return new EntityModel
             {
