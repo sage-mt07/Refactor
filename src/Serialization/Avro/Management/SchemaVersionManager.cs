@@ -173,18 +173,17 @@ namespace KsqlDsl.Serialization.Avro.Management
         {
             try
             {
-                var schemaInfo = await _schemaRegistryClient.GetLatestSchemaAsync(subject);
+                var registeredSchema = await _schemaRegistryClient.GetRegisteredSchemaAsync(subject, -1);
 
-                // 修正理由：CS0029エラー対応 - KsqlDsl.SchemaRegistry.AvroSchemaInfo を KsqlDsl.Avro.AvroSchemaInfo に変換
                 return new AvroSchemaInfo
                 {
-                    EntityType = typeof(object), // デフォルト値
-                    Type = SerializerType.Value, // デフォルト値
-                    SchemaId = schemaInfo.Id,
-                    Subject = schemaInfo.Subject,
+                    EntityType = typeof(object),
+                    Type = SerializerType.Value,
+                    SchemaId = registeredSchema.Id,
+                    Subject = registeredSchema.Subject,
                     RegisteredAt = DateTime.UtcNow,
                     LastUsed = DateTime.UtcNow,
-                    Version = schemaInfo.Version,
+                    Version = registeredSchema.Version,
                     UsageCount = 0
                 };
             }

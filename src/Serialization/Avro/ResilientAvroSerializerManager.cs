@@ -1,9 +1,9 @@
 ﻿using Confluent.SchemaRegistry;
-using KsqlDsl.Avro;
 using KsqlDsl.Configuration.Options;
 using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Monitoring.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -18,15 +18,18 @@ namespace KsqlDsl.Serialization.Avro
         private readonly ISchemaRegistryClient _schemaRegistryClient;
         private readonly AvroOperationRetrySettings _retrySettings;
         private readonly ILogger<ResilientAvroSerializerManager> _logger;
+        private readonly AvroMetricsCollector? _metricsCollector;
 
         public ResilientAvroSerializerManager(
             ISchemaRegistryClient schemaRegistryClient,
             IOptions<AvroOperationRetrySettings> retrySettings,
-            ILogger<ResilientAvroSerializerManager> logger)
+            ILogger<ResilientAvroSerializerManager> logger,
+            AvroMetricsCollector? metricsCollector = null)
         {
             _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
             _retrySettings = retrySettings?.Value ?? throw new ArgumentNullException(nameof(retrySettings));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _metricsCollector = metricsCollector;
         }
 
         public async Task<int> RegisterSchemaWithRetryAsync(string subject, string schema)
@@ -45,8 +48,11 @@ namespace KsqlDsl.Serialization.Avro
                     var schemaId = await _schemaRegistryClient.RegisterSchemaAsync(subject, schema);
                     stopwatch.Stop();
 
-                    AvroLogMessages.SchemaRegistrationSucceeded(_logger, subject, schemaId, attempt, stopwatch.ElapsedMilliseconds);
-                    AvroMetrics.RecordSchemaRegistration(subject, success: true, stopwatch.Elapsed);
+                    _logger.LogInformation(
+                        "Schema registration succeeded: {Subject} (ID: {SchemaId}, Attempt: {Attempt}, Duration: {Duration}ms)",
+                        subject, schemaId, attempt, stopwatch.ElapsedMilliseconds);
+
+                    _metricsCollector?.RecordSchemaRegistration(subject, true, stopwatch.Elapsed);
 
                     activity?.SetTag("schema.id", schemaId)?.SetStatus(ActivityStatusCode.Ok);
                     return schemaId;
@@ -55,15 +61,20 @@ namespace KsqlDsl.Serialization.Avro
                 {
                     var delay = CalculateDelay(policy, attempt);
 
-                    AvroLogMessages.SchemaRegistrationRetry(_logger, subject, attempt, policy.MaxAttempts, (long)delay.TotalMilliseconds, ex);
+                    _logger.LogWarning(ex,
+                        "Schema registration retry: {Subject} (Attempt: {Attempt}/{MaxAttempts}, Delay: {Delay}ms)",
+                        subject, attempt, policy.MaxAttempts, delay.TotalMilliseconds);
 
                     await Task.Delay(delay);
                     attempt++;
                 }
                 catch (Exception ex)
                 {
-                    AvroLogMessages.SchemaRegistrationFailed(_logger, subject, attempt, ex);
-                    AvroMetrics.RecordSchemaRegistration(subject, success: false, TimeSpan.Zero);
+                    _logger.LogError(ex,
+                        "Schema registration failed permanently: {Subject} (Attempts: {Attempts})",
+                        subject, attempt);
+
+                    _metricsCollector?.RecordSchemaRegistration(subject, false, TimeSpan.Zero);
 
                     activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                     throw;
@@ -83,23 +94,24 @@ namespace KsqlDsl.Serialization.Avro
                 try
                 {
                     var stopwatch = Stopwatch.StartNew();
-                    var schemaInfo = await _schemaRegistryClient.GetSchemaAsync(subject, version);
+                    // 新しいAPIを使用
+                    var registeredSchema = await _schemaRegistryClient.GetRegisteredSchemaAsync(subject, version);
                     stopwatch.Stop();
 
-                    _logger.LogDebug("Schema retrieval succeeded: {Subject} v{Version} (Attempt: {Attempt}, Duration: {Duration}ms)",
+                    _logger.LogDebug(
+                        "Schema retrieval succeeded: {Subject} v{Version} (Attempt: {Attempt}, Duration: {Duration}ms)",
                         subject, version, attempt, stopwatch.ElapsedMilliseconds);
 
-                    // 修正理由：CS0029エラー対応 - KsqlDsl.SchemaRegistry.AvroSchemaInfo を KsqlDsl.Avro.AvroSchemaInfo に変換
                     return new AvroSchemaInfo
                     {
-                        EntityType = typeof(object), // デフォルト値
-                        Type = SerializerType.Value, // デフォルト値
-                        SchemaId = schemaInfo.Id,
-                        Subject = schemaInfo.Subject,
+                        EntityType = typeof(object),
+                        Type = SerializerType.Value,
+                        SchemaId = registeredSchema.Id,
+                        Subject = registeredSchema.Subject,
                         RegisteredAt = DateTime.UtcNow,
                         LastUsed = DateTime.UtcNow,
-                        SchemaJson = schemaInfo.AvroSchema,
-                        Version = schemaInfo.Version,
+                        AvroSchema = registeredSchema.SchemaString,
+                        Version = registeredSchema.Version,
                         UsageCount = 0
                     };
                 }
@@ -107,7 +119,8 @@ namespace KsqlDsl.Serialization.Avro
                 {
                     var delay = CalculateDelay(policy, attempt);
 
-                    _logger.LogWarning(ex, "Schema retrieval retry: {Subject} v{Version} (Attempt: {Attempt}/{MaxAttempts}, Delay: {Delay}ms)",
+                    _logger.LogWarning(ex,
+                        "Schema retrieval retry: {Subject} v{Version} (Attempt: {Attempt}/{MaxAttempts}, Delay: {Delay}ms)",
                         subject, version, attempt, policy.MaxAttempts, delay.TotalMilliseconds);
 
                     await Task.Delay(delay);
@@ -115,7 +128,8 @@ namespace KsqlDsl.Serialization.Avro
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Schema retrieval failed permanently: {Subject} v{Version} (Attempts: {Attempts})",
+                    _logger.LogError(ex,
+                        "Schema retrieval failed permanently: {Subject} v{Version} (Attempts: {Attempts})",
                         subject, version, attempt);
                     throw;
                 }
@@ -134,10 +148,13 @@ namespace KsqlDsl.Serialization.Avro
                 try
                 {
                     var stopwatch = Stopwatch.StartNew();
-                    var isCompatible = await _schemaRegistryClient.CheckCompatibilityAsync(subject, schema);
+                    // Schemaオブジェクトを作成して互換性チェック
+                    var schemaObj = new Schema(schema, SchemaType.Avro);
+                    var isCompatible = await _schemaRegistryClient.IsCompatibleAsync(subject, schemaObj);
                     stopwatch.Stop();
 
-                    _logger.LogDebug("Compatibility check succeeded: {Subject} (Attempt: {Attempt}, Duration: {Duration}ms, Result: {Result})",
+                    _logger.LogDebug(
+                        "Compatibility check succeeded: {Subject} (Attempt: {Attempt}, Duration: {Duration}ms, Result: {Result})",
                         subject, attempt, stopwatch.ElapsedMilliseconds, isCompatible);
 
                     return isCompatible;
@@ -146,7 +163,8 @@ namespace KsqlDsl.Serialization.Avro
                 {
                     var delay = CalculateDelay(policy, attempt);
 
-                    _logger.LogWarning(ex, "Compatibility check retry: {Subject} (Attempt: {Attempt}/{MaxAttempts}, Delay: {Delay}ms)",
+                    _logger.LogWarning(ex,
+                        "Compatibility check retry: {Subject} (Attempt: {Attempt}/{MaxAttempts}, Delay: {Delay}ms)",
                         subject, attempt, policy.MaxAttempts, delay.TotalMilliseconds);
 
                     await Task.Delay(delay);
@@ -154,7 +172,8 @@ namespace KsqlDsl.Serialization.Avro
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Compatibility check failed permanently: {Subject} (Attempts: {Attempts})",
+                    _logger.LogError(ex,
+                        "Compatibility check failed permanently: {Subject} (Attempts: {Attempts})",
                         subject, attempt);
                     throw;
                 }

@@ -375,23 +375,22 @@ namespace KsqlDsl.Messaging.Consumers.Core
             {
                 try
                 {
+                    var rawConsumer = _consumerInstance.PooledConsumer.Consumer;
+
                     if (_subscribed)
                     {
-                        var rawConsumer = _consumerInstance.PooledConsumer.Consumer;
                         rawConsumer.Unsubscribe();
                         _subscribed = false;
                     }
 
                     // ConsumerInstanceはプールに返却せず、適切に終了
                     // 理由：Consumer状態管理の複雑性により、プール返却は危険
-                    var rawConsumer = _consumerInstance.PooledConsumer.Consumer;
                     rawConsumer.Close();
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Error disposing consumer: {EntityType}", typeof(T).Name);
                 }
-
                 _disposed = true;
             }
         }

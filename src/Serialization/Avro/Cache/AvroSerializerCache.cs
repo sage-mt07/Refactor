@@ -3,11 +3,13 @@ using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Serialization.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Data;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,7 +27,6 @@ namespace KsqlDsl.Serialization.Avro.Cache
         private readonly Dictionary<string, object> _serializerCache = new();
 
         public Type EntityType => typeof(object);
-      
 
         public AvroSerializerCache(
             AvroSerializerFactory factory,
@@ -36,20 +37,20 @@ namespace KsqlDsl.Serialization.Avro.Cache
                 ?? NullLogger<AvroSerializerCache>.Instance;
         }
 
-        public ISerializationManager<T> GetManager<T>() where T : class
+        public IAvroSerializationManager<T> GetAvroManager<T>() where T : class
         {
             var entityType = typeof(T);
 
             if (_serializerManagers.TryGetValue(entityType, out var existingManager))
             {
-                return (ISerializationManager<T>)existingManager;
+                return (IAvroSerializationManager<T>)existingManager;
             }
 
             var newManager = new AvroEntitySerializationManager<T>(_factory, _logger);
             _serializerManagers[entityType] = newManager;
             return newManager;
         }
-        // AvroSerializerCache.cs に追加
+
         public virtual IAvroSerializer<T> GetOrCreateSerializer<T>() where T : class
         {
             var key = GetSerializerCacheKey<T>();
@@ -71,7 +72,6 @@ namespace KsqlDsl.Serialization.Avro.Cache
             return $"serializer:{typeof(T).FullName}";
         }
 
-        // AvroSerializerCache.cs に追加
         public virtual IAvroDeserializer<T> GetOrCreateDeserializer<T>() where T : class
         {
             var key = GetDeserializerCacheKey<T>();
@@ -93,19 +93,20 @@ namespace KsqlDsl.Serialization.Avro.Cache
         {
             return $"deserializer:{typeof(T).FullName}";
         }
+
         public Task<SerializerPair<object>> GetSerializersAsync(CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException("Use GetManager<T>() for type-specific serializers");
+            throw new NotSupportedException("Use GetAvroManager<T>() for type-specific serializers");
         }
 
         public Task<DeserializerPair<object>> GetDeserializersAsync(CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException("Use GetManager<T>() for type-specific deserializers");
+            throw new NotSupportedException("Use GetAvroManager<T>() for type-specific deserializers");
         }
 
         public Task<bool> ValidateRoundTripAsync(object entity, CancellationToken cancellationToken = default)
         {
-            throw new NotSupportedException("Use GetManager<T>() for type-specific validation");
+            throw new NotSupportedException("Use GetAvroManager<T>() for type-specific validation");
         }
 
         public SerializationStatistics GetStatistics()
@@ -114,7 +115,7 @@ namespace KsqlDsl.Serialization.Avro.Cache
 
             foreach (var manager in _serializerManagers.Values)
             {
-                if (manager is ISerializationManager<object> typedManager)
+                if (manager is IAvroSerializationManager<object> typedManager)
                 {
                     var stats = typedManager.GetStatistics();
                     aggregated.TotalSerializations += stats.TotalSerializations;
@@ -162,7 +163,7 @@ namespace KsqlDsl.Serialization.Avro.Cache
         }
     }
 
-    internal class AvroEntitySerializationManager<T> : ISerializationManager<T> where T : class
+    internal class AvroEntitySerializationManager<T> : IAvroSerializationManager<T> where T : class
     {
         private readonly AvroSerializerFactory _factory;
         private readonly ILogger? _logger;

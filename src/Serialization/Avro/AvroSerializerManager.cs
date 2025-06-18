@@ -11,7 +11,7 @@ using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro
 {
-    public class AvroSerializerManager
+    public class AvroSerializerManager: IAvroSerializationManager<T>
     {
         private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
         private readonly AvroSerializerCache _cache;

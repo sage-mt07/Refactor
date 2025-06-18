@@ -5,16 +5,6 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl.Serialization.Abstractions
 {
-    public interface ISerializationManager<T> : IDisposable where T : class
-    {
-        Task<SerializerPair<T>> GetSerializersAsync(CancellationToken cancellationToken = default);
-        Task<DeserializerPair<T>> GetDeserializersAsync(CancellationToken cancellationToken = default);
-        Task<bool> ValidateRoundTripAsync(T entity, CancellationToken cancellationToken = default);
-        SerializationStatistics GetStatistics();
-        Type EntityType { get; }
-        SerializationFormat Format { get; }
-    }
-
     public interface IAvroSchemaProvider
     {
         Task<string> GetKeySchemaAsync<T>() where T : class;
@@ -22,7 +12,6 @@ namespace KsqlDsl.Serialization.Abstractions
         Task<(string keySchema, string valueSchema)> GetSchemasAsync<T>() where T : class;
         Task<bool> ValidateSchemaAsync(string schema);
     }
-
 
     public class SerializerPair<T> where T : class
     {
@@ -47,13 +36,11 @@ namespace KsqlDsl.Serialization.Abstractions
         public double HitRate => TotalSerializations > 0 ? (double)CacheHits / TotalSerializations : 0.0;
         public TimeSpan AverageLatency { get; set; }
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
-        public long TotalSerializations;     // ✅ プロパティ → フィールド
-        public long TotalDeserializations;   // ✅ プロパティ → フィールド
-        public long CacheHits;               // ✅ プロパティ → フィールド
-        public long CacheMisses;             // ✅ プロパティ → フィールド
-
+        public long TotalSerializations;
+        public long TotalDeserializations;
+        public long CacheHits;
+        public long CacheMisses;
     }
-
 
     public enum SerializationFormat
     {
