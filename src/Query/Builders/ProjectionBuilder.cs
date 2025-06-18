@@ -1,7 +1,7 @@
-﻿using System;
+﻿using KsqlDsl.Query.Abstractions;
+using System;
 using System.Linq.Expressions;
 using System.Text;
-using KsqlDsl.Query.Abstractions;
 
 namespace KsqlDsl.Query.Builders
 {

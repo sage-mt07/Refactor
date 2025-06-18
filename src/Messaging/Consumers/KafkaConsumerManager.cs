@@ -1,14 +1,7 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Confluent.Kafka;
-using KsqlDsl.Configuration.Options;
-using KsqlDsl.Core.Modeling;
-using KsqlDsl.Core.Models;
+﻿using Confluent.Kafka;
+using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Core.Abstractions;
+//using KsqlDsl.Core.Attributes;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Configuration;
 using KsqlDsl.Messaging.Consumers.Core;
@@ -17,13 +10,18 @@ using KsqlDsl.Messaging.Consumers.Pool;
 using KsqlDsl.Messaging.Consumers.Subscription;
 using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Monitoring.Abstractions;
-using KsqlDsl.Monitoring.Diagnostics;
-using KsqlDsl.Monitoring.Health;
-using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Avro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace KsqlDsl.Messaging.Consumers;
 
@@ -430,7 +428,7 @@ public class KafkaConsumerManager : IDisposable
         return new EntityModel
         {
             EntityType = typeof(T),
-            TopicAttribute = new KsqlDsl.Attributes.TopicAttribute(typeof(T).Name)
+            TopicAttribute = new TopicAttribute(typeof(T).Name)
         };
     }
 

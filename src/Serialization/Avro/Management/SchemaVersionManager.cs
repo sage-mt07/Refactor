@@ -1,11 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Confluent.SchemaRegistry;
+﻿using Confluent.SchemaRegistry;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace KsqlDsl.Serialization.Avro.Management
 {

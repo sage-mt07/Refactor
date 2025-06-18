@@ -1,12 +1,10 @@
 ﻿using Confluent.Kafka;
-using KsqlDsl.Configuration.Options;
-using KsqlDsl.Core.Models;
+using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Messaging.Producers.Core;
-using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 

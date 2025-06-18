@@ -1,13 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Confluent.Kafka;
+﻿using Confluent.Kafka;
 using Confluent.SchemaRegistry.Serdes;
-using KsqlDsl.Core.Modeling;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
 using Microsoft.Extensions.Logging;
+using System;
+using System.Threading.Tasks;
 using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro

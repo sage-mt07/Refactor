@@ -1,6 +1,6 @@
 ﻿using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Attributes;
-using KsqlDsl.Core.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Linq.Expressions;

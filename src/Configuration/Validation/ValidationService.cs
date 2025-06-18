@@ -1,4 +1,5 @@
 ﻿using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Attributes;
 using System;
 using System.Linq;

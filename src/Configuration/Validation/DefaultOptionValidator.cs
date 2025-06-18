@@ -1,6 +1,6 @@
 ﻿namespace KsqlDsl.Configuration.Validation;
 
-using KsqlDsl.Configuration.Options;
+using KsqlDsl.Configuration.Abstractions;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;

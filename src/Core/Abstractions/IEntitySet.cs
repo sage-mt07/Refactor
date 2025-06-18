@@ -36,7 +36,7 @@ namespace KsqlDsl.Core.Abstractions
 
         // Metadata
         string GetTopicName();
-        KsqlDsl.Core.Modeling.EntityModel GetEntityModel();
+        EntityModel GetEntityModel();
         IKafkaContext GetContext();
     }
 }

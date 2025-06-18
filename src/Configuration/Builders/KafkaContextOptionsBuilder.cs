@@ -1,6 +1,4 @@
-﻿using KsqlDsl.Configuration;
-using KsqlDsl.Configuration.Abstractions;
-using KsqlDsl.Configuration.Options;
+﻿using KsqlDsl.Configuration.Abstractions;
 using System;
 
 namespace KsqlDsl.Configuration.Builders;

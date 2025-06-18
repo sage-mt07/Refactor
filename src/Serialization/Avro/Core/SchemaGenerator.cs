@@ -1,12 +1,11 @@
-﻿using System;
+﻿using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Monitoring.Abstractions.Models;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
-using KsqlDsl.Configuration.Options;
-using KsqlDsl.Core.Modeling;
-
-using KsqlDsl.Monitoring.Metrics;
 
 namespace KsqlDsl.Serialization.Avro.Core;
 

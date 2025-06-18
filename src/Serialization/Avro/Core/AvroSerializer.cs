@@ -1,6 +1,5 @@
 ﻿namespace KsqlDsl.Serialization.Avro.Core;
 
-using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;

@@ -1,12 +1,4 @@
-﻿using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Confluent.Kafka;
-using KsqlDsl.Core.Modeling;
+﻿using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Configuration;
@@ -14,11 +6,17 @@ using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Messaging.Producers.Exception;
 using KsqlDsl.Messaging.Producers.Pool;
 using KsqlDsl.Monitoring.Abstractions;
-using KsqlDsl.Monitoring.Health;
-using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using KsqlDsl.Serialization.Avro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace KsqlDsl.Messaging.Producers
 {
@@ -106,7 +104,7 @@ namespace KsqlDsl.Messaging.Producers
 
                 return typedProducer;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 stopwatch.Stop();
                 RecordProducerCreationFailure<T>(stopwatch.Elapsed, ex);
@@ -132,7 +130,16 @@ namespace KsqlDsl.Messaging.Producers
 
             var messageList = messages.ToList();
             if (messageList.Count == 0)
-                return new KafkaBatchDeliveryResult { AllSuccessful = true };
+                return new KafkaBatchDeliveryResult
+                {
+                    
+                    TotalMessages = 0,
+                    SuccessfulCount = 0,
+                    FailedCount = 0,
+                    Results = new List<KafkaDeliveryResult>(),
+                    Errors = new List<BatchDeliveryError>(),
+                    TotalLatency = TimeSpan.Zero
+                };
 
             using var activity = KafkaActivitySource.StartActivity("kafka.batch_send_optimized")
                 ?.SetTag("kafka.entity.type", typeof(T).Name)
@@ -156,7 +163,7 @@ namespace KsqlDsl.Messaging.Producers
 
                 return result;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 stopwatch.Stop();
                 RecordBatchSend<T>(messageList.Count, success: false, stopwatch.Elapsed);
@@ -314,7 +321,7 @@ namespace KsqlDsl.Messaging.Producers
             Interlocked.Increment(ref _performanceStats.TotalProducersCreated);
         }
 
-        private void RecordProducerCreationFailure<T>(TimeSpan duration, Exception ex)
+        private void RecordProducerCreationFailure<T>(TimeSpan duration, System.Exception ex)
         {
             var entityType = typeof(T);
             var stats = _entityStats.GetOrAdd(entityType, _ => new ProducerEntityStats { EntityType = entityType });

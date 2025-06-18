@@ -1,4 +1,4 @@
-﻿using KsqlDsl.Core.Attributes;
+﻿using KsqlDsl.Core.Abstractions;
 using System;
 using System.Collections.Generic;
 

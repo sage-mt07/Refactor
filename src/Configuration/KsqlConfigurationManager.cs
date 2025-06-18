@@ -4,7 +4,6 @@
 namespace KsqlDsl.Configuration;
 
 using KsqlDsl.Configuration.Abstractions;
-using KsqlDsl.Configuration.Options;
 using KsqlDsl.Configuration.Overrides;
 using KsqlDsl.Configuration.Validation;
 using Microsoft.Extensions.Configuration;

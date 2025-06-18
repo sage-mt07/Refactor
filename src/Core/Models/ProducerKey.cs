@@ -1,19 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KsqlDsl.Core.Models;
 
-// =============================================================================
-// Key Classes - キー・識別子クラス
-// =============================================================================
 
-/// <summary>
-/// Producer識別キー
-/// 設計理由：プール管理での効率的なProducer識別
-/// </summary>
 public class ProducerKey : IEquatable<ProducerKey>
 {
     public Type EntityType { get; }

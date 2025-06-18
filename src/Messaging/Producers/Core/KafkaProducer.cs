@@ -3,11 +3,11 @@
 // =============================================================================
 
 using Confluent.Kafka;
-using KsqlDsl.Core.Modeling;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Producers.Exception;
-using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;

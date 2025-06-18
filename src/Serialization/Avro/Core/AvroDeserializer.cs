@@ -1,7 +1,6 @@
 ﻿namespace KsqlDsl.Serialization.Avro.Core;
 
 using KsqlDsl.Serialization.Avro.Abstractions;
-using KsqlDsl.Serialization.Avro.Cache;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;

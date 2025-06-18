@@ -2,12 +2,11 @@
 // Messaging Abstractions - Phase 3: 機能分離に対応した統一インターフェース
 // =============================================================================
 
+using Confluent.Kafka;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Confluent.Kafka;
-using KsqlDsl.Monitoring.Health;
 
 namespace KsqlDsl.Messaging.Abstractions;
 
@@ -89,38 +88,38 @@ public interface ISubscriptionManager<T> : IDisposable where T : class
 /// プール管理共通インターフェース
 /// 設計理由：Producer/Consumer両方に適用可能な統一プール管理
 /// </summary>
-public interface IPoolManager<TKey, T> : IDisposable where TKey : notnull
-{
-    /// <summary>
-    /// リソース取得
-    /// </summary>
-    T RentResource(TKey key);
+//public interface IPoolManager<TKey, T> : IDisposable where TKey : notnull
+//{
+//    /// <summary>
+//    /// リソース取得
+//    /// </summary>
+//    T RentResource(TKey key);
 
-    /// <summary>
-    /// リソース返却
-    /// </summary>
-    void ReturnResource(TKey key, T resource);
+//    /// <summary>
+//    /// リソース返却
+//    /// </summary>
+//    void ReturnResource(TKey key, T resource);
 
-    /// <summary>
-    /// プール統計取得
-    /// </summary>
-    PoolStatistics GetStatistics();
+//    /// <summary>
+//    /// プール統計取得
+//    /// </summary>
+//    PoolStatistics GetStatistics();
 
-    /// <summary>
-    /// ヘルス状態取得
-    /// </summary>
-    Task<PoolHealthStatus> GetHealthStatusAsync();
+//    /// <summary>
+//    /// ヘルス状態取得
+//    /// </summary>
+//    Task<PoolHealthStatus> GetHealthStatusAsync();
 
-    /// <summary>
-    /// リソース数取得
-    /// </summary>
-    int GetActiveResourceCount();
+//    /// <summary>
+//    /// リソース数取得
+//    /// </summary>
+//    int GetActiveResourceCount();
 
-    /// <summary>
-    /// プール最適化実行
-    /// </summary>
-    void OptimizePools();
-}
+//    /// <summary>
+//    /// プール最適化実行
+//    /// </summary>
+//    void OptimizePools();
+//}
 
 // =============================================================================
 // Data Transfer Objects

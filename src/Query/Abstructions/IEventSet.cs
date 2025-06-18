@@ -1,4 +1,4 @@
-﻿using KsqlDsl.Core.Modeling;
+﻿using KsqlDsl.Core.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -30,7 +30,7 @@ public interface IEventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : cla
 
     // LINQ Extensions
     IEventSet<T> Where(Expression<Func<T, bool>> predicate);
-    IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector) where TResult :class;
+    IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector) where TResult : class;
     IEventSet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector);
     IEventSet<T> Take(int count);
     IEventSet<T> Skip(int count);

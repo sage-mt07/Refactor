@@ -1,6 +1,6 @@
-﻿using System;
+﻿using KsqlDsl.Configuration.Validation;
+using System;
 using System.Threading.Tasks;
-using KsqlDsl.Configuration.Validation;
 namespace KsqlDsl.Configuration.Abstractions;
 
 /// <summary>

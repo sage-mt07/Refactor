@@ -1,6 +1,6 @@
 ﻿using Confluent.Kafka;
 using Confluent.SchemaRegistry.Serdes;
-using KsqlDsl.Core.Modeling;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Avro.Cache;

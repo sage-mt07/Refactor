@@ -1,6 +1,6 @@
-﻿using System;
+﻿using KsqlDsl.Query.Abstractions;
+using System;
 using System.Linq.Expressions;
-using KsqlDsl.Query.Abstractions;
 
 namespace KsqlDsl.Query.Translation
 {

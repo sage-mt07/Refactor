@@ -1,6 +1,6 @@
 ﻿using Confluent.SchemaRegistry;
 using KsqlDsl.Configuration.Abstractions;
-using KsqlDsl.Core.Modeling;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using System;
 using System.Collections.Generic;

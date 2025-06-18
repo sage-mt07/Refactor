@@ -1,5 +1,5 @@
-﻿using KsqlDsl.Core.Attributes;
-using KsqlDsl.Core.Modeling;
+﻿using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Core.Attributes;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Configuration;
@@ -7,9 +7,8 @@ using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Messaging.Producers.Exception;
 using KsqlDsl.Messaging.Producers.Pool;
 using KsqlDsl.Monitoring.Abstractions;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using KsqlDsl.Monitoring.Diagnostics;
-using KsqlDsl.Monitoring.Health;
-using KsqlDsl.Monitoring.Metrics;
 using KsqlDsl.Serialization.Avro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -215,7 +214,7 @@ public class KafkaProducerManager : IDisposable
 
         var messageList = messages.ToList();
         if (messageList.Count == 0)
-            return new KafkaBatchDeliveryResult { FailedCount=0 };
+            return new KafkaBatchDeliveryResult { FailedCount = 0 };
 
         var stopwatch = Stopwatch.StartNew();
         var producer = await GetProducerAsync<T>();

@@ -1,6 +1,6 @@
 ﻿using Confluent.Kafka;
 using Confluent.SchemaRegistry.Serdes;
-using KsqlDsl.Core.Modeling;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using Microsoft.Extensions.Logging;

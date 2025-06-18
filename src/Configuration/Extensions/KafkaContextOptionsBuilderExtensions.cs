@@ -1,6 +1,6 @@
 ﻿using Confluent.SchemaRegistry;
+using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Configuration.Builders;
-using KsqlDsl.Configuration.Options;
 using System;
 
 namespace KsqlDsl.Configuration.Extensions;

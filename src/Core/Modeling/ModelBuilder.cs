@@ -1,5 +1,6 @@
 ﻿using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Configuration.Validation;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Attributes;
 using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Management;

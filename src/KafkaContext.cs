@@ -1,22 +1,19 @@
 // src/KafkaContext.cs - Core層統合完全版
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
+using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Context;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Messaging.Producers;
-using KsqlDsl.Messaging.Consumers;
-using KsqlDsl.Serialization.Avro.Core;
-using KsqlDsl.Configuration.Options;
-using KsqlDsl.Serialization.Avro.Management;
-using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Messaging.Configuration;
-using KsqlDsl.Core.Models;
+using KsqlDsl.Messaging.Consumers;
+using KsqlDsl.Messaging.Producers;
 using KsqlDsl.Messaging.Producers.Exception;
+using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Serialization.Avro.Management;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace KsqlDsl
 {

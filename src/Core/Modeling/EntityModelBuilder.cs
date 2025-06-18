@@ -1,4 +1,5 @@
-﻿using System;
+﻿using KsqlDsl.Core.Abstractions;
+using System;
 
 namespace KsqlDsl.Core.Modeling;
 

@@ -1,9 +1,9 @@
-﻿using System;
+﻿using KsqlDsl.Core.Abstractions;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Reflection;
-using KsqlDsl.Core.Abstractions;
 
 namespace KsqlDsl.Core
 {
@@ -83,6 +83,6 @@ namespace KsqlDsl.Core
             return referencedTypes.Where(t => t.Assembly != type.Assembly);
         }
 
-     
+
     }
 }

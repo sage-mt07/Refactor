@@ -1,16 +1,16 @@
-﻿using System;
+﻿using Confluent.Kafka;
+using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Core.Models;
+using KsqlDsl.Messaging.Abstractions;
+using KsqlDsl.Messaging.Producers.Exception;
+using KsqlDsl.Monitoring.Abstractions.Models;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Confluent.Kafka;
-using KsqlDsl.Core.Modeling;
-using KsqlDsl.Core.Models;
-using KsqlDsl.Messaging.Abstractions;
-using KsqlDsl.Messaging.Producers.Exception;
-using KsqlDsl.Monitoring.Metrics;
-using Microsoft.Extensions.Logging;
 
 namespace KsqlDsl.Messaging.Producers.Core
 {

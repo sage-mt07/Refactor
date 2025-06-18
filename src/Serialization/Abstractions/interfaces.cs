@@ -1,7 +1,7 @@
-﻿using System;
+﻿using Confluent.Kafka;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Confluent.Kafka;
 
 namespace KsqlDsl.Serialization.Abstractions
 {

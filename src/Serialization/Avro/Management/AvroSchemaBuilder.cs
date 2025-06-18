@@ -1,5 +1,4 @@
-﻿using KsqlDsl.Core.Attributes;
-using KsqlDsl.Core.Modeling;
+﻿using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using System;

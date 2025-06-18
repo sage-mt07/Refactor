@@ -1,14 +1,13 @@
-﻿using System;
+﻿using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Query.EventSets;
+using KsqlDsl.Query.Linq;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
-using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Core.Modeling;
-using KsqlDsl.Query.EventSets;
-using KsqlDsl.Query.Linq;
 
 namespace KsqlDsl
 {
@@ -16,7 +15,7 @@ namespace KsqlDsl
     /// Core層IEntitySet<T>実装
     /// 設計理由：Core抽象化との統合、既存API互換性維持
     /// </summary>
-    public  class EventSet<T> : IEntitySet<T> where T : class
+    public class EventSet<T> : IEntitySet<T> where T : class
     {
         private readonly IKafkaContext _context;
         private readonly EntityModel _entityModel;

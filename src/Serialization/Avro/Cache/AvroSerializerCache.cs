@@ -1,7 +1,5 @@
 ﻿using Confluent.Kafka;
-using Confluent.SchemaRegistry.Serdes;
-using KsqlDsl.Core.Attributes;
-using KsqlDsl.Core.Modeling;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
@@ -27,7 +25,7 @@ namespace KsqlDsl.Serialization.Avro.Cache
         private readonly Dictionary<string, object> _serializerCache = new();
 
         public Type EntityType => typeof(object);
-        public SerializationFormat Format => SerializationFormat.Avro;
+      
 
         public AvroSerializerCache(
             AvroSerializerFactory factory,

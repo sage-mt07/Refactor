@@ -1,5 +1,5 @@
-﻿using KsqlDsl.Configuration.Options;
-using KsqlDsl.Core.Models;
+﻿using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Messaging.Abstractions;
 using System;
 using System.Threading;

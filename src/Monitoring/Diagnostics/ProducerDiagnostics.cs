@@ -1,5 +1,5 @@
 ﻿using KsqlDsl.Messaging.Configuration;
-using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using System;
 using System.Collections.Generic;
 

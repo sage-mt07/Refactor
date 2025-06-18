@@ -1,6 +1,6 @@
-﻿using KsqlDsl.Configuration.Options;
+﻿using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Core.Models;
-using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using System.Collections.Generic;
 
 namespace KsqlDsl.Monitoring.Diagnostics

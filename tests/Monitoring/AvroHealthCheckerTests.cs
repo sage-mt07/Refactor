@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Xunit;
 using Moq;
+using KsqlDsl.Monitoring.Abstractions.Models;
 
 namespace KsqlDsl.Monitoring.Tests
 {

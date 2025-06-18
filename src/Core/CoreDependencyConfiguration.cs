@@ -1,7 +1,7 @@
-﻿using System;
-using Microsoft.Extensions.DependencyInjection;
-using KsqlDsl.Core.Abstractions;
+﻿using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Context;
+using Microsoft.Extensions.DependencyInjection;
+using System;
 
 namespace KsqlDsl.Core
 {

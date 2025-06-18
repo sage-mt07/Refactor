@@ -1,6 +1,5 @@
-﻿using KsqlDsl.Core.Modeling;
+﻿using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Messaging.Consumers;
-using KsqlDsl.Messaging.Consumers.Exceptions;
 using KsqlDsl.Query.Abstractions;
 using KsqlDsl.Query.Translation;
 using System;
@@ -33,7 +32,7 @@ namespace KsqlDsl.Query.EventSets
         }
 
         // Pull Query実行（ToList系）
-       
+
         public override List<T> ToList()
         {
             var topicName = GetTopicName();
@@ -180,7 +179,7 @@ namespace KsqlDsl.Query.EventSets
 
             try
             {
-                ValidateKsqlQueryContent(ksqlQuery); // ✅ 統一されたメソッド名を使用
+                ConfigurationValidator.ValidateKsqlQueryContent(queryContent);
 
                 // ConsumerManagerを使用（新しいアーキテクチャ）
                 var consumerManager = _context.GetConsumerManager(); // ✅ GetConsumerService → GetConsumerManager
@@ -395,7 +394,7 @@ namespace KsqlDsl.Query.EventSets
             return new EventSetStreaming<T>(_context, _entityModel, methodCall);
         }
 
-        public override IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector)where TResult :class
+        public override IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector) where TResult : class
         {
             if (selector == null)
                 throw new ArgumentNullException(nameof(selector));

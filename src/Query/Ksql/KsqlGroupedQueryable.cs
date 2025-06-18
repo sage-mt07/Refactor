@@ -1,4 +1,4 @@
-﻿using KsqlDsl.Core.Modeling;
+﻿using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Query.EventSets;
 using KsqlDsl.Query.Linq;
 using System;

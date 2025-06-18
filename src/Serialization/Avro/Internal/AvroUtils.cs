@@ -1,10 +1,9 @@
-﻿using System;
+﻿using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Serialization.Avro.Core;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using KsqlDsl.Core.Attributes;
-using KsqlDsl.Core.Modeling;
-using KsqlDsl.Serialization.Avro.Core;
 
 namespace KsqlDsl.Serialization.Avro.Internal
 {

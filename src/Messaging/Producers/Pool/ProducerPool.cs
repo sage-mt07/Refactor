@@ -1,13 +1,11 @@
 ﻿using Confluent.Kafka;
 using KsqlDsl.Configuration.Abstractions;
-using KsqlDsl.Configuration.Options;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Messaging.Producers.Exception;
 using KsqlDsl.Monitoring.Abstractions;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using KsqlDsl.Monitoring.Diagnostics;
-using KsqlDsl.Monitoring.Health;
-using KsqlDsl.Monitoring.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;

@@ -1,4 +1,4 @@
-﻿using KsqlDsl.Configuration.Options;
+﻿using KsqlDsl.Configuration.Abstractions;
 
 namespace KsqlDsl.Monitoring.Diagnostics
 {

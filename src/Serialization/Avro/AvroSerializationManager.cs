@@ -131,7 +131,7 @@ namespace KsqlDsl.Serialization.Avro
         }
     }
 
-    internal class SchemaRegistryClientWrapper :ISchemaRegistryClient
+    internal class SchemaRegistryClientWrapper : ISchemaRegistryClient
     {
         private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
 
@@ -172,7 +172,7 @@ namespace KsqlDsl.Serialization.Avro
             var schema = await _client.GetLatestSchemaAsync(subject);
             return new AvroSchemaInfo
             {
-                Id = schema.Id,
+                SchemaId = schema.Id,
                 Version = schema.Version,
                 Subject = schema.Subject,
                 AvroSchema = schema.SchemaString
@@ -184,7 +184,7 @@ namespace KsqlDsl.Serialization.Avro
             var schema = await _client.GetSchemaAsync(schemaId);
             return new AvroSchemaInfo
             {
-                Id = schema.Id,
+                SchemaId = schema.Id,
                 Version = schema.Version,
                 Subject = schema.Subject,
                 AvroSchema = schema.SchemaString

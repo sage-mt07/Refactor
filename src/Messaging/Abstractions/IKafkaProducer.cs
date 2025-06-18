@@ -1,10 +1,8 @@
-﻿using KsqlDsl.Core.Models;
+﻿using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Messaging.Producers.Core;
-using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Monitoring.Abstractions.Models;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 

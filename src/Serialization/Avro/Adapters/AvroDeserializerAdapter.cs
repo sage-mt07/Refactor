@@ -1,7 +1,6 @@
 ﻿namespace KsqlDsl.Serialization.Avro.Adapters;
 
 using Confluent.Kafka;
-using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using System;
 using System.Runtime.Serialization;
