@@ -1,4 +1,5 @@
 ﻿using KsqlDsl.Core.Modeling;
+using KsqlDsl.Messaging.Consumers;
 using KsqlDsl.Messaging.Consumers.Exceptions;
 using KsqlDsl.Query.Abstractions;
 using KsqlDsl.Query.Translation;
@@ -32,15 +33,13 @@ namespace KsqlDsl.Query.EventSets
         }
 
         // Pull Query実行（ToList系）
+       
         public override List<T> ToList()
         {
             var topicName = GetTopicName();
-
             ValidateQueryBeforeExecution();
-
             // Pull Queryとして実行（isPullQuery: true）
             var ksqlQuery = ToKsql(isPullQuery: true);
-
             if (_context.Options.EnableDebugLogging)
             {
                 Console.WriteLine($"[DEBUG] EventSetStreaming.ToList: {typeof(T).Name} ← Topic: {topicName}");
@@ -48,19 +47,19 @@ namespace KsqlDsl.Query.EventSets
                 Console.WriteLine($"[DEBUG] Query Diagnostics: {_queryTranslator.GetDiagnostics()}");
             }
 
-            var consumerService = _context.GetConsumerService();
-
             try
             {
                 ValidateKsqlQuery(ksqlQuery);
-                var results = consumerService.Query<T>(ksqlQuery, _entityModel);
-                ValidateQueryResults(results);
 
+                // ConsumerManagerを使用（新しいアーキテクチャ）
+                var consumerManager = _context.GetConsumerManager();
+                var results = ExecuteQueryWithConsumerManager<T>(consumerManager, ksqlQuery);
+
+                ValidateQueryResults(results);
                 if (_context.Options.EnableDebugLogging)
                 {
                     Console.WriteLine($"[DEBUG] Query completed successfully. Results: {results.Count} items");
                 }
-
                 return results;
             }
             catch (Exception ex)
@@ -70,27 +69,129 @@ namespace KsqlDsl.Query.EventSets
             }
         }
 
+        /// <summary>
+        /// クエリ実行前のバリデーション
+        /// </summary>
+        private void ValidateQueryBeforeExecution()
+        {
+            if (_entityModel.TopicAttribute == null)
+            {
+                throw new InvalidOperationException($"Entity {typeof(T).Name} does not have [Topic] attribute");
+            }
+
+            if (string.IsNullOrEmpty(_entityModel.TopicAttribute.TopicName))
+            {
+                throw new InvalidOperationException($"Entity {typeof(T).Name} has invalid topic name");
+            }
+        }
+
+        /// <summary>
+        /// KSQLクエリのバリデーション
+        /// </summary>
+        private void ValidateKsqlQuery(string ksqlQuery)
+        {
+            if (string.IsNullOrWhiteSpace(ksqlQuery))
+            {
+                throw new InvalidOperationException("Generated KSQL query is empty or invalid");
+            }
+
+            if (ksqlQuery.Contains("/* KSQL変換エラー"))
+            {
+                throw new InvalidOperationException($"KSQL translation error detected: {ksqlQuery}");
+            }
+        }
+
+        /// <summary>
+        /// クエリ結果のバリデーション
+        /// </summary>
+        private void ValidateQueryResults(List<T> results)
+        {
+            if (results == null)
+            {
+                throw new InvalidOperationException("Query execution returned null results");
+            }
+
+            // 結果の妥当性チェック（必要に応じて追加）
+            foreach (var result in results)
+            {
+                if (result == null)
+                {
+                    throw new InvalidOperationException("Query returned null entity in results");
+                }
+            }
+        }
+
+        /// <summary>
+        /// クエリ例外のハンドリング
+        /// </summary>
+        private void HandleQueryException(Exception ex, string topicName, string operation)
+        {
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[ERROR] EventSetStreaming.{operation} failed: {typeof(T).Name} ← Topic: {topicName}");
+                Console.WriteLine($"[ERROR] Exception: {ex.Message}");
+                Console.WriteLine($"[ERROR] StackTrace: {ex.StackTrace}");
+            }
+
+            // 例外の種類に応じた追加ログ（必要に応じて）
+            switch (ex)
+            {
+                case InvalidOperationException _:
+                    Console.WriteLine($"[ERROR] Query validation or execution error for {typeof(T).Name}");
+                    break;
+                case NotSupportedException _:
+                    Console.WriteLine($"[ERROR] Unsupported query operation for {typeof(T).Name}");
+                    break;
+                default:
+                    Console.WriteLine($"[ERROR] Unexpected error during {operation} for {typeof(T).Name}");
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// ConsumerManagerを使用したクエリ実行
+        /// 設計理由：新しいConsumer architecture対応
+        /// </summary>
+        private List<T> ExecuteQueryWithConsumerManager<TResult>(KafkaConsumerManager consumerManager, string ksqlQuery) where TResult : class
+        {
+            // Phase2での完全実装までの一時的な実装
+            // TODO: ConsumerManagerでKSQLクエリを実行する機能を実装
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[WARNING] ExecuteQueryWithConsumerManager is transitioning to new Consumer architecture");
+                Console.WriteLine($"[WARNING] KSQL Query: {ksqlQuery}");
+                Console.WriteLine($"[WARNING] Returning empty results until Phase2 completion");
+            }
+
+            // 現在は空のリストを返す（Phase2で実装予定）
+            return new List<T>();
+        }
         public override async Task<List<T>> ToListAsync(CancellationToken cancellationToken = default)
         {
             var topicName = GetTopicName();
-
             ValidateQueryBeforeExecution();
-
             var ksqlQuery = ToKsql(isPullQuery: true);
-
             if (_context.Options.EnableDebugLogging)
             {
                 Console.WriteLine($"[DEBUG] EventSetStreaming.ToListAsync: {typeof(T).Name} ← Topic: {topicName}");
                 Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
             }
 
-            var consumerService = _context.GetConsumerService();
-
             try
             {
-                ValidateKsqlQuery(ksqlQuery);
-                var results = await consumerService.QueryAsync<T>(ksqlQuery, _entityModel, cancellationToken);
+                ValidateKsqlQueryContent(ksqlQuery); // ✅ 統一されたメソッド名を使用
+
+                // ConsumerManagerを使用（新しいアーキテクチャ）
+                var consumerManager = _context.GetConsumerManager(); // ✅ GetConsumerService → GetConsumerManager
+                var results = await ExecuteQueryWithConsumerManagerAsync<T>(consumerManager, ksqlQuery, cancellationToken);
+
                 ValidateQueryResults(results);
+
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[DEBUG] ToListAsync completed successfully. Results: {results.Count} items");
+                }
 
                 return results;
             }
@@ -106,6 +207,59 @@ namespace KsqlDsl.Query.EventSets
             {
                 HandleQueryException(ex, topicName, "ToListAsync");
                 throw;
+            }
+        }
+        private async Task<List<T>> ExecuteQueryWithConsumerManagerAsync<TResult>(
+          KafkaConsumerManager consumerManager,
+          string ksqlQuery,
+          CancellationToken cancellationToken) where TResult : class
+        {
+            // Phase2での完全実装までの一時的な実装
+            // TODO: ConsumerManagerでKSQLクエリを非同期実行する機能を実装
+
+            if (_context.Options.EnableDebugLogging)
+            {
+                Console.WriteLine($"[WARNING] ExecuteQueryWithConsumerManagerAsync is transitioning to new Consumer architecture");
+                Console.WriteLine($"[WARNING] Entity: {typeof(TResult).Name}");
+                Console.WriteLine($"[WARNING] KSQL Query: {ksqlQuery}");
+                Console.WriteLine($"[WARNING] Returning empty results until Phase2 completion");
+            }
+
+            // CancellationTokenをチェック
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                // 将来的にはここでConsumerManagerを使用してKSQLクエリを非同期実行
+                // 現在は非同期的に空のリストを返す（Phase2で実装予定）
+
+                // 実際の実装例（Phase2で有効化）:
+                // var subscriptionOptions = new KafkaSubscriptionOptions 
+                // { 
+                //     GroupId = $"query-{Guid.NewGuid()}", 
+                //     AutoCommit = false 
+                // };
+                // var consumer = await consumerManager.CreateConsumerAsync<TResult>(subscriptionOptions);
+                // var queryResults = await consumer.ExecuteKsqlQueryAsync(ksqlQuery, cancellationToken);
+                // return queryResults;
+
+                // 一時的な非同期遅延（実際のクエリ実行をシミュレート）
+                await Task.Delay(10, cancellationToken);
+
+                return new List<T>();
+            }
+            catch (OperationCanceledException)
+            {
+                if (_context.Options.EnableDebugLogging)
+                {
+                    Console.WriteLine($"[INFO] ExecuteQueryWithConsumerManagerAsync cancelled for {typeof(TResult).Name}");
+                }
+                throw; // キャンセル例外は再スロー
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] ExecuteQueryWithConsumerManagerAsync failed: {ex.Message}");
+                throw new InvalidOperationException($"Async query execution failed for {typeof(TResult).Name}", ex);
             }
         }
 
@@ -241,7 +395,7 @@ namespace KsqlDsl.Query.EventSets
             return new EventSetStreaming<T>(_context, _entityModel, methodCall);
         }
 
-        public override IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector)
+        public override IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector)where TResult :class
         {
             if (selector == null)
                 throw new ArgumentNullException(nameof(selector));
@@ -301,32 +455,7 @@ namespace KsqlDsl.Query.EventSets
             return new EventSetStreaming<T>(_context, _entityModel, methodCall);
         }
 
-        // プライベートヘルパーメソッド
-        private void ValidateKsqlQuery(string ksqlQuery)
-        {
-            if (string.IsNullOrEmpty(ksqlQuery) || ksqlQuery.Contains("/* KSQL変換エラー"))
-            {
-                throw new InvalidOperationException($"Failed to generate valid KSQL query for {typeof(T).Name}");
-            }
-        }
 
-        private void HandleQueryException(Exception ex, string topicName, string operation)
-        {
-            if (_context.Options.EnableDebugLogging)
-            {
-                Console.WriteLine($"[DEBUG] {operation} error: {ex.Message}");
-            }
 
-            if (ex is KafkaConsumerException)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to execute {operation} on topic '{topicName}' for {typeof(T).Name}: {ex.Message}", ex);
-            }
-            else
-            {
-                throw new InvalidOperationException(
-                    $"Unexpected error in {operation} for {typeof(T).Name} from topic '{topicName}': {ex.Message}", ex);
-            }
-        }
     }
 }

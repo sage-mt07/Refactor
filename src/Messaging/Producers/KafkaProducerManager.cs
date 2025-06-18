@@ -138,7 +138,69 @@ public class KafkaProducerManager : IDisposable
             // プール返却失敗は致命的でないため、エラーは記録のみ
         }
     }
+    public async Task ProduceAsync<T>(T entity, EntityModel entityModel, CancellationToken cancellationToken = default) where T : class
+    {
+        if (entity == null)
+            throw new ArgumentNullException(nameof(entity));
+        if (entityModel == null)
+            throw new ArgumentNullException(nameof(entityModel));
 
+        var producer = await GetProducerAsync<T>();
+        try
+        {
+            var context = new KafkaMessageContext
+            {
+                MessageId = Guid.NewGuid().ToString(),
+                Tags = new Dictionary<string, object>
+                {
+                    ["entity_type"] = typeof(T).Name,
+                    ["topic_name"] = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name,
+                    ["method"] = "ProduceAsync"
+                }
+            };
+
+            await producer.SendAsync(entity, context, cancellationToken);
+        }
+        finally
+        {
+            ReturnProducer(producer);
+        }
+    }
+    public async Task SendRangeAsync<T>(IEnumerable<T> entities, EntityModel entityModel, CancellationToken cancellationToken = default) where T : class
+    {
+        if (entities == null)
+            throw new ArgumentNullException(nameof(entities));
+        if (entityModel == null)
+            throw new ArgumentNullException(nameof(entityModel));
+
+        var entityList = entities.ToList();
+        if (entityList.Count == 0)
+            return;
+
+        var batchContext = new KafkaMessageContext
+        {
+            MessageId = Guid.NewGuid().ToString(),
+            Tags = new Dictionary<string, object>
+            {
+                ["entity_type"] = typeof(T).Name,
+                ["topic_name"] = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name,
+                ["method"] = "SendRangeAsync",
+                ["batch_size"] = entityList.Count
+            }
+        };
+
+        var batchResult = await SendBatchOptimizedAsync(entityList, batchContext, cancellationToken);
+
+        if (!batchResult.AllSuccessful)
+        {
+            var failureDetails = string.Join(", ",
+                batchResult.Errors.Select(e => $"Index {e.MessageIndex}: {e.Error?.Reason}"));
+
+            throw new KafkaBatchSendException(
+                $"SendRange failed - {batchResult.FailedCount}/{batchResult.TotalMessages} messages failed. Details: {failureDetails}",
+                batchResult);
+        }
+    }
     /// <summary>
     /// バッチ送信最適化
     /// 設計理由：同一トピック・パーティションのメッセージをグルーピングして効率的送信

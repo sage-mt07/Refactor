@@ -1,5 +1,4 @@
-﻿
-// =============================================================================
+﻿// =============================================================================
 // src/Messaging/Producers/Core/KafkaProducer.cs
 // =============================================================================
 
@@ -7,11 +6,13 @@ using Confluent.Kafka;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
+using KsqlDsl.Messaging.Producers.Exception;
 using KsqlDsl.Monitoring.Metrics;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -47,7 +48,7 @@ namespace KsqlDsl.Messaging.Producers.Core
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public async Task<KafkaDeliveryResult> SendAsync(T message, MessageContext? context = null, CancellationToken cancellationToken = default)
+        public async Task<KafkaDeliveryResult> SendAsync(T message, KafkaMessageContext? context = null, CancellationToken cancellationToken = default)
         {
             if (message == null)
                 throw new ArgumentNullException(nameof(message));
@@ -85,19 +86,18 @@ namespace KsqlDsl.Messaging.Producers.Core
                     Latency = stopwatch.Elapsed
                 };
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 stopwatch.Stop();
                 UpdateSendStats(success: false, stopwatch.Elapsed);
 
                 _logger.LogError(ex, "Failed to send message: {EntityType}", typeof(T).Name);
 
-                // ✅ 正しい戻り値型で返す
                 return new KafkaDeliveryResult
                 {
                     Topic = TopicName,
-                    Partition = -1,  // エラー時は無効な値
-                    Offset = -1,     // エラー時は無効な値
+                    Partition = -1,
+                    Offset = -1,
                     Timestamp = DateTime.UtcNow,
                     Status = PersistenceStatus.NotPersisted,
                     Latency = stopwatch.Elapsed
@@ -105,11 +105,168 @@ namespace KsqlDsl.Messaging.Producers.Core
             }
         }
 
+        public async Task<KafkaBatchDeliveryResult> SendBatchAsync(IEnumerable<T> messages, KafkaMessageContext? context = null, CancellationToken cancellationToken = default)
+        {
+            if (messages == null)
+                throw new ArgumentNullException(nameof(messages));
 
+            var messageList = messages.ToList();
+            if (messageList.Count == 0)
+            {
+                return new KafkaBatchDeliveryResult
+                {
+                    Topic = TopicName,
+                    TotalMessages = 0,
+                    SuccessfulCount = 0,
+                    FailedCount = 0,
+                    Results = new List<KafkaDeliveryResult>(),
+                    Errors = new List<BatchDeliveryError>(),
+                    TotalLatency = TimeSpan.Zero
+                };
+            }
 
-     
-      
+            var stopwatch = Stopwatch.StartNew();
+            var results = new List<KafkaDeliveryResult>();
+            var errors = new List<BatchDeliveryError>();
 
+            try
+            {
+                var tasks = messageList.Select(async (message, index) =>
+                {
+                    try
+                    {
+                        var result = await SendAsync(message, context, cancellationToken);
+                        return new { Index = index, Result = result, Error = (Error?)null };
+                    }
+                    catch (System.Exception ex)
+                    {
+                        return new { Index = index, Result = (KafkaDeliveryResult?)null, Error = new Error(ErrorCode.Local_Application, ex.Message, false) };
+                    }
+                });
+
+                var taskResults = await Task.WhenAll(tasks);
+                stopwatch.Stop();
+
+                foreach (var taskResult in taskResults)
+                {
+                    if (taskResult.Error != null)
+                    {
+                        errors.Add(new BatchDeliveryError
+                        {
+                            MessageIndex = taskResult.Index,
+                            Error = taskResult.Error,
+                            OriginalMessage = messageList[taskResult.Index]
+                        });
+                    }
+                    else if (taskResult.Result != null)
+                    {
+                        results.Add(taskResult.Result);
+                    }
+                }
+
+                return new KafkaBatchDeliveryResult
+                {
+                    Topic = TopicName,
+                    TotalMessages = messageList.Count,
+                    SuccessfulCount = results.Count,
+                    FailedCount = errors.Count,
+                    Results = results,
+                    Errors = errors,
+                    TotalLatency = stopwatch.Elapsed
+                };
+            }
+            catch (System.Exception ex)
+            {
+                stopwatch.Stop();
+
+                _logger.LogError(ex, "Failed to send batch: {EntityType}", typeof(T).Name);
+                throw;
+            }
+        }
+
+        // ✅ 不足していたGetStats()メソッドを実装
+        public KafkaProducerStats GetStats()
+        {
+            lock (_stats)
+            {
+                return new KafkaProducerStats
+                {
+                    TotalMessagesSent = _stats.TotalMessagesSent,
+                    SuccessfulMessages = _stats.SuccessfulMessages,
+                    FailedMessages = _stats.FailedMessages,
+                    AverageLatency = _stats.AverageLatency,
+                    MinLatency = _stats.MinLatency,
+                    MaxLatency = _stats.MaxLatency,
+                    LastMessageSent = _stats.LastMessageSent,
+                    TotalBytesSent = _stats.TotalBytesSent,
+                    MessagesPerSecond = _stats.MessagesPerSecond
+                };
+            }
+        }
+
+        // ✅ 不足していたFlushAsync()メソッドを実装
+        public async Task FlushAsync(TimeSpan timeout)
+        {
+            try
+            {
+                _rawProducer.Flush(timeout);
+                await Task.Delay(1);
+                _logger.LogTrace("Producer flushed: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to flush producer: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                throw;
+            }
+        }
+
+        private Headers? BuildHeaders(KafkaMessageContext? context)
+        {
+            if (context?.Headers == null || !context.Headers.Any())
+                return null;
+
+            var headers = new Headers();
+            foreach (var kvp in context.Headers)
+            {
+                if (kvp.Value != null)
+                {
+                    var valueBytes = System.Text.Encoding.UTF8.GetBytes(kvp.Value.ToString() ?? "");
+                    headers.Add(kvp.Key, valueBytes);
+                }
+            }
+
+            return headers;
+        }
+
+        private void UpdateSendStats(bool success, TimeSpan latency)
+        {
+            lock (_stats)
+            {
+                _stats.TotalMessagesSent++;
+
+                if (success)
+                    _stats.SuccessfulMessages++;
+                else
+                    _stats.FailedMessages++;
+
+                if (_stats.MinLatency == TimeSpan.Zero || latency < _stats.MinLatency)
+                    _stats.MinLatency = latency;
+                if (latency > _stats.MaxLatency)
+                    _stats.MaxLatency = latency;
+
+                if (_stats.TotalMessagesSent == 1)
+                {
+                    _stats.AverageLatency = latency;
+                }
+                else
+                {
+                    var totalMs = _stats.AverageLatency.TotalMilliseconds * (_stats.TotalMessagesSent - 1) + latency.TotalMilliseconds;
+                    _stats.AverageLatency = TimeSpan.FromMilliseconds(totalMs / _stats.TotalMessagesSent);
+                }
+
+                _stats.LastMessageSent = DateTime.UtcNow;
+            }
+        }
 
         public void Dispose()
         {
@@ -117,7 +274,6 @@ namespace KsqlDsl.Messaging.Producers.Core
             {
                 try
                 {
-                    // ✅ Producer用の適切なDispose処理
                     _rawProducer?.Flush(TimeSpan.FromSeconds(10));
                     _rawProducer?.Dispose();
                 }

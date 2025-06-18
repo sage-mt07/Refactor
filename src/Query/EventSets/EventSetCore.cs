@@ -157,7 +157,7 @@ namespace KsqlDsl.Query.EventSets
         public abstract Task SubscribeAsync(Func<T, Task> onNext, CancellationToken cancellationToken = default);
         public abstract Task ForEachAsync(Func<T, Task> action, TimeSpan timeout = default, CancellationToken cancellationToken = default);
         public abstract IEventSet<T> Where(Expression<Func<T, bool>> predicate);
-        public abstract IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector);
+        public abstract IEventSet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector)where TResult:class;
         public abstract IEventSet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector);
         public abstract IEventSet<T> Take(int count);
         public abstract IEventSet<T> Skip(int count);
