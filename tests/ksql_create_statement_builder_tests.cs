@@ -3,7 +3,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using Ksql.EntityFrameworkCore.Modeling;
 using KsqlDsl.Ksql;
-using KsqlDsl.Metadata;
+using KsqlDsl.Query.Abstructions;
 using Xunit;
 
 namespace KsqlDsl.Tests

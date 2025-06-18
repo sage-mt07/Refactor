@@ -23,13 +23,6 @@ namespace KsqlDsl.Serialization.Abstractions
         Task<bool> ValidateSchemaAsync(string schema);
     }
 
-    public interface ISchemaVersionResolver
-    {
-        Task<int> ResolveKeySchemaVersionAsync<T>() where T : class;
-        Task<int> ResolveValueSchemaVersionAsync<T>() where T : class;
-        Task<bool> CanUpgradeAsync<T>(string newSchema) where T : class;
-        Task<SchemaUpgradeResult> UpgradeAsync<T>() where T : class;
-    }
 
     public class SerializerPair<T> where T : class
     {
@@ -51,23 +44,16 @@ namespace KsqlDsl.Serialization.Abstractions
 
     public class SerializationStatistics
     {
-        public long TotalSerializations { get; set; }
-        public long TotalDeserializations { get; set; }
-        public long CacheHits { get; set; }
-        public long CacheMisses { get; set; }
         public double HitRate => TotalSerializations > 0 ? (double)CacheHits / TotalSerializations : 0.0;
         public TimeSpan AverageLatency { get; set; }
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+        public long TotalSerializations;     // ✅ プロパティ → フィールド
+        public long TotalDeserializations;   // ✅ プロパティ → フィールド
+        public long CacheHits;               // ✅ プロパティ → フィールド
+        public long CacheMisses;             // ✅ プロパティ → フィールド
+
     }
 
-    public class SchemaUpgradeResult
-    {
-        public bool Success { get; set; }
-        public string? Reason { get; set; }
-        public int? NewKeySchemaId { get; set; }
-        public int? NewValueSchemaId { get; set; }
-        public DateTime UpgradedAt { get; set; } = DateTime.UtcNow;
-    }
 
     public enum SerializationFormat
     {

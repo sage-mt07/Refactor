@@ -1,7 +1,7 @@
 ﻿using KsqlDsl.Core.Attributes;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.SchemaRegistry;
 using KsqlDsl.Serialization.Abstractions;
+using KsqlDsl.Serialization.Avro.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;

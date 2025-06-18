@@ -29,14 +29,14 @@ namespace KsqlDsl.Core.Abstractions
 
         // LINQ extensions
         IEntitySet<T> Where(Expression<Func<T, bool>> predicate);
-        IEntitySet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector);
+        IEntitySet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector) where TResult : class;
         IEntitySet<IGrouping<TKey, T>> GroupBy<TKey>(Expression<Func<T, TKey>> keySelector);
         IEntitySet<T> Take(int count);
         IEntitySet<T> Skip(int count);
 
         // Metadata
         string GetTopicName();
-        KsqlDsl.Modeling.EntityModel GetEntityModel();
+        KsqlDsl.Core.Modeling.EntityModel GetEntityModel();
         IKafkaContext GetContext();
     }
 }

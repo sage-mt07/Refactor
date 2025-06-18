@@ -1,34 +1,41 @@
 ﻿using Confluent.Kafka;
+using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Core.Attributes;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Serialization.Abstractions;
+using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace KsqlDsl.Serialization.Avro.Cache
 {
-    public class AvroSerializerCache : ISerializationManager<object>
+    public class AvroSerializerCache : ISerializationManager<object>, IDisposable
     {
         private readonly ConcurrentDictionary<Type, object> _serializerManagers = new();
         private readonly AvroSerializerFactory _factory;
         private readonly ILogger<AvroSerializerCache>? _logger;
         private readonly SerializationStatistics _statistics = new();
         private bool _disposed = false;
+        private readonly Dictionary<string, object> _deserializerCache = new();
+        private readonly Dictionary<string, object> _serializerCache = new();
 
         public Type EntityType => typeof(object);
         public SerializationFormat Format => SerializationFormat.Avro;
 
         public AvroSerializerCache(
             AvroSerializerFactory factory,
-            ILogger<AvroSerializerCache>? logger = null)
+            ILoggerFactory? logger = null)
         {
             _factory = factory ?? throw new ArgumentNullException(nameof(factory));
-            _logger = logger;
+            _logger = logger?.CreateLogger<AvroSerializerCache>()
+                ?? NullLogger<AvroSerializerCache>.Instance;
         }
 
         public ISerializationManager<T> GetManager<T>() where T : class
@@ -44,7 +51,50 @@ namespace KsqlDsl.Serialization.Avro.Cache
             _serializerManagers[entityType] = newManager;
             return newManager;
         }
+        // AvroSerializerCache.cs に追加
+        public virtual IAvroSerializer<T> GetOrCreateSerializer<T>() where T : class
+        {
+            var key = GetSerializerCacheKey<T>();
+            if (_serializerCache.TryGetValue(key, out var cached))
+            {
+                return (IAvroSerializer<T>)cached;
+            }
 
+            var serializer = _factory.CreateSerializer<T>();
+            _serializerCache[key] = serializer;
+
+            _logger?.LogDebug("Created serializer for type {Type}", typeof(T).Name);
+
+            return serializer;
+        }
+
+        private string GetSerializerCacheKey<T>()
+        {
+            return $"serializer:{typeof(T).FullName}";
+        }
+
+        // AvroSerializerCache.cs に追加
+        public virtual IAvroDeserializer<T> GetOrCreateDeserializer<T>() where T : class
+        {
+            var key = GetDeserializerCacheKey<T>();
+
+            if (_deserializerCache.TryGetValue(key, out var cached))
+            {
+                return (IAvroDeserializer<T>)cached;
+            }
+
+            var deserializer = _factory.CreateDeserializer<T>();
+            _deserializerCache[key] = deserializer;
+
+            _logger?.LogDebug("Created deserializer for type {Type}", typeof(T).Name);
+
+            return deserializer;
+        }
+
+        private string GetDeserializerCacheKey<T>()
+        {
+            return $"deserializer:{typeof(T).FullName}";
+        }
         public Task<SerializerPair<object>> GetSerializersAsync(CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException("Use GetManager<T>() for type-specific serializers");

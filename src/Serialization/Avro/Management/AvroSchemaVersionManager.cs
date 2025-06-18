@@ -1,12 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using KsqlDsl.SchemaRegistry;
-using KsqlDsl.Serialization.Abstractions;
+﻿using KsqlDsl.Serialization.Abstractions;
+using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Internal;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace KsqlDsl.Serialization.Avro.Management
 {
@@ -17,10 +17,11 @@ namespace KsqlDsl.Serialization.Avro.Management
 
         public AvroSchemaVersionManager(
             ISchemaRegistryClient schemaRegistryClient,
-            ILogger<AvroSchemaVersionManager>? logger = null)
+            ILoggerFactory? loggerFactory = null)
         {
             _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
-            _logger = logger;
+            _logger = loggerFactory?.CreateLogger<AvroSchemaVersionManager>()
+                ?? NullLogger<AvroSchemaVersionManager>.Instance;
         }
 
         public async Task<int> ResolveKeySchemaVersionAsync<T>() where T : class
@@ -136,7 +137,7 @@ namespace KsqlDsl.Serialization.Avro.Management
                         {
                             Subject = valueSubject,
                             Version = version,
-                            SchemaId = schema.Id,
+                            SchemaId = schema.SchemaId,
                             Schema = schema.AvroSchema,
                             RegistrationTime = DateTime.UtcNow
                         });
@@ -233,3 +234,4 @@ namespace KsqlDsl.Serialization.Avro.Management
         public bool ValueCompatible { get; set; }
         public List<string> Issues { get; set; } = new();
     }
+}

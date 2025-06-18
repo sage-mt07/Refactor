@@ -1,9 +1,7 @@
-﻿using KsqlDsl.Communication;
-using KsqlDsl.Messaging.Abstractions;
+﻿using KsqlDsl.Messaging.Abstractions;
+using KsqlDsl.Monitoring.Metrics;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Threading;
 
 namespace KsqlDsl.Messaging.Bus;
 

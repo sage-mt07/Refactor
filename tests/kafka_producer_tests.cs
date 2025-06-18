@@ -1,8 +1,8 @@
 using System;
 using System.Threading.Tasks;
 using KsqlDsl.Attributes;
+using KsqlDsl.Configuration.Builders;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Options;
 using Xunit;
 
 namespace KsqlDsl.Tests

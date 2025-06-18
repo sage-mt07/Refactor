@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Ksql;
-using KsqlDsl.Metadata;
+using KsqlDsl.Query.Abstructions;
 using Xunit;
 
 namespace KsqlDsl.Tests

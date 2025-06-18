@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Linq;
 using KsqlDsl.Monitoring.Abstractions;
+using KsqlDsl.Serialization.Avro.Cache;
 
 namespace KsqlDsl.Monitoring.Metrics
 {
@@ -211,7 +212,7 @@ namespace KsqlDsl.Monitoring.Metrics
             RecordTimer("schema_registration_duration", duration, tags);
         }
 
-        public void UpdateGlobalMetrics(KsqlDsl.Avro.CacheStatistics stats)
+        public void UpdateGlobalMetrics(CacheStatistics stats)
         {
             RecordGauge("cache_size", stats.CachedItemCount);
             RecordGauge("cache_hit_rate", stats.HitRate);
@@ -222,7 +223,7 @@ namespace KsqlDsl.Monitoring.Metrics
         /// <summary>
         /// Observable Metricsの登録（.NET Metrics統合）
         /// </summary>
-        public void RegisterObservableMetrics(KsqlDsl.Avro.AvroSerializerCache cache)
+        public void RegisterObservableMetrics(AvroSerializerCache cache)
         {
             _meter.CreateObservableGauge<int>("avro_cache_size", () => cache.GetCachedItemCount());
             _meter.CreateObservableGauge<double>("avro_cache_hit_rate", () => cache.GetGlobalStatistics().HitRate);

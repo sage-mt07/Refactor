@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using KsqlDsl.Monitoring.Abstractions;
 using KsqlDsl.Avro;
+using KsqlDsl.Serialization.Avro.Cache;
 
 namespace KsqlDsl.Monitoring.Diagnostics
 {

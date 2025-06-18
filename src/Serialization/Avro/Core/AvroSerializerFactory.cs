@@ -1,11 +1,13 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using Confluent.Kafka;
+﻿using Confluent.Kafka;
 using Confluent.SchemaRegistry.Serdes;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Serialization.Abstractions;
+using KsqlDsl.Serialization.Avro.Abstractions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro.Core
@@ -14,13 +16,16 @@ namespace KsqlDsl.Serialization.Avro.Core
     {
         private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
         private readonly ILogger<AvroSerializerFactory>? _logger;
+        private readonly ILoggerFactory? _loggerFactory;
 
         public AvroSerializerFactory(
             ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
-            ILogger<AvroSerializerFactory>? logger = null)
+            ILoggerFactory? loggerFactory = null)
         {
             _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
-            _logger = logger;
+            _loggerFactory = loggerFactory;
+            _logger = loggerFactory?.CreateLogger<AvroSerializerFactory>()
+                ?? NullLogger<AvroSerializerFactory>.Instance;
         }
 
         public async Task<SerializerPair<T>> CreateSerializersAsync<T>(EntityModel entityModel, CancellationToken cancellationToken = default) where T : class
@@ -55,6 +60,20 @@ namespace KsqlDsl.Serialization.Avro.Core
                 KeySchemaId = keySchemaId,
                 ValueSchemaId = valueSchemaId
             };
+        }
+        public IAvroSerializer<T> CreateSerializer<T>() where T : class
+        {
+            _logger?.LogDebug("Creating Avro serializer for type {Type}", typeof(T).Name);
+
+            // TODO: 実際のAvroシリアライザー作成実装
+            return new AvroSerializer<T>(_loggerFactory);
+        }
+        public IAvroDeserializer<T> CreateDeserializer<T>() where T : class
+        {
+            _logger?.LogDebug("Creating Avro deserializer for type {Type}", typeof(T).Name);
+
+            // TODO: 実際のAvroデシリアライザー作成実装
+            return new AvroDeserializer<T>(_loggerFactory);
         }
 
         private async Task<int> RegisterKeySchemaAsync<T>(EntityModel entityModel, CancellationToken cancellationToken) where T : class
@@ -133,12 +152,12 @@ namespace KsqlDsl.Serialization.Avro.Core
 
         private string GenerateKeySchema(Type keyType)
         {
-            return KsqlDsl.SchemaRegistry.SchemaGenerator.GenerateKeySchema(keyType);
+            return SchemaGenerator.GenerateKeySchema(keyType);
         }
 
         private string GenerateValueSchema<T>() where T : class
         {
-            return KsqlDsl.SchemaRegistry.SchemaGenerator.GenerateSchema<T>();
+            return SchemaGenerator.GenerateSchema<T>();
         }
 
         private ISerializer<object> CreatePrimitiveKeySerializer(Type keyType)

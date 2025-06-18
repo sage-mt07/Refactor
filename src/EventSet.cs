@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Modeling;
+using KsqlDsl.Query.EventSets;
+using KsqlDsl.Query.Linq;
 
 namespace KsqlDsl
 {
@@ -182,7 +184,7 @@ namespace KsqlDsl
             return CreateNewEventSet(_context, _entityModel, methodCall);
         }
 
-        public IEntitySet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector)
+        public IEntitySet<TResult> Select<TResult>(Expression<Func<T, TResult>> selector) where TResult : class
         {
             if (selector == null)
                 throw new ArgumentNullException(nameof(selector));

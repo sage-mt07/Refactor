@@ -1,5 +1,4 @@
 ﻿using KsqlDsl.Core.Modeling;
-using KsqlDsl.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Threading;

@@ -13,7 +13,7 @@ namespace KsqlDsl.Query.EventSets
     /// EventSet基本CRUD操作
     /// 設計理由：EventSet.csから基本操作責務を分離
     /// </summary>
-    public partial class EventSetCore<T> : IEventSet<T> where T : class
+    public abstract class EventSetCore<T> : IEventSet<T> where T : class
     {
         protected readonly KafkaContext _context;
         protected readonly EntityModel _entityModel;
@@ -49,8 +49,8 @@ namespace KsqlDsl.Query.EventSets
 
             ValidateEntity(entity);
 
-            var producerService = _context.GetProducerService();
-            await producerService.SendAsync(entity, _entityModel, cancellationToken);
+            var producerService = _context.GetProducerManager();
+            await producerService.ProduceAsync(entity, _entityModel, cancellationToken);
 
             if (_context.Options.EnableDebugLogging)
             {
@@ -74,7 +74,7 @@ namespace KsqlDsl.Query.EventSets
                 ValidateEntity(entity);
             }
 
-            var producerService = _context.GetProducerService();
+            var producerService = _context.GetProducerManager();
             await producerService.SendRangeAsync(entityList, _entityModel, cancellationToken);
 
             if (_context.Options.EnableDebugLogging)

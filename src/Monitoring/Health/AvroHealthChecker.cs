@@ -1,5 +1,7 @@
-﻿using KsqlDsl.Avro;
+﻿using KsqlDsl.Configuration.Options;
 using KsqlDsl.Monitoring.Abstractions;
+using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Serialization.Avro.Cache;        // PerformanceMonitoringAvroCache用
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;

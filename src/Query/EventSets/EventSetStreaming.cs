@@ -1,4 +1,5 @@
 ﻿using KsqlDsl.Core.Modeling;
+using KsqlDsl.Messaging.Consumers.Exceptions;
 using KsqlDsl.Query.Abstractions;
 using KsqlDsl.Query.Translation;
 using System;

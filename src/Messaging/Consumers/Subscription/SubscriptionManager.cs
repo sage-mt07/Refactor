@@ -1,12 +1,11 @@
-﻿using System;
+﻿using KsqlDsl.Messaging.Abstractions;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using KsqlDsl.Communication;
-using KsqlDsl.Messaging.Abstractions;
-using Microsoft.Extensions.Logging;
 
 namespace KsqlDsl.Messaging.Consumers.Subscription;
 
@@ -156,7 +155,7 @@ public class SubscriptionManager<T> : ISubscriptionManager<T> where T : class
         }
     }
 }
-}
+
 internal class SubscriptionContext<T> where T : class
 {
     public string Id { get; set; } = string.Empty;

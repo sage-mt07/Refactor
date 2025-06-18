@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Confluent.Kafka;
+using KsqlDsl.Monitoring.Health;
 
 namespace KsqlDsl.Messaging.Abstractions;
 
@@ -199,13 +200,13 @@ public class PoolStatistics
 /// <summary>
 /// プールヘルス状態
 /// </summary>
-public class PoolHealthStatus
-{
-    public PoolHealthLevel HealthLevel { get; set; }
-    public List<PoolHealthIssue> Issues { get; set; } = new();
-    public PoolStatistics Statistics { get; set; } = new();
-    public DateTime LastCheck { get; set; } = DateTime.UtcNow;
-}
+//public class PoolHealthStatus
+//{
+//    public PoolHealthLevel HealthLevel { get; set; }
+//    public List<PoolHealthIssue> Issues { get; set; } = new();
+//    public PoolStatistics Statistics { get; set; } = new();
+//    public DateTime LastCheck { get; set; } = DateTime.UtcNow;
+//}
 
 /// <summary>
 /// MessageBusヘルス状態
@@ -242,12 +243,7 @@ public enum SubscriptionStatus
     Error
 }
 
-public enum PoolHealthLevel
-{
-    Healthy,
-    Warning,
-    Critical
-}
+
 
 public enum MessageBusHealthLevel
 {
@@ -260,13 +256,13 @@ public enum MessageBusHealthLevel
 // Health Issues
 // =============================================================================
 
-public class PoolHealthIssue
-{
-    public PoolHealthIssueType Type { get; set; }
-    public string Description { get; set; } = string.Empty;
-    public PoolIssueSeverity Severity { get; set; }
-    public DateTime DetectedAt { get; set; } = DateTime.UtcNow;
-}
+//public class PoolHealthIssue
+//{
+//    public PoolHealthIssueType Type { get; set; }
+//    public string Description { get; set; } = string.Empty;
+//    public PoolIssueSeverity Severity { get; set; }
+//    public DateTime DetectedAt { get; set; } = DateTime.UtcNow;
+//}
 
 public class MessageBusHealthIssue
 {
@@ -276,13 +272,13 @@ public class MessageBusHealthIssue
     public DateTime DetectedAt { get; set; } = DateTime.UtcNow;
 }
 
-public enum PoolHealthIssueType
-{
-    HighFailureRate,
-    PoolExhaustion,
-    ResourceLeak,
-    HealthCheckFailure
-}
+//public enum PoolHealthIssueType
+//{
+//    HighFailureRate,
+//    PoolExhaustion,
+//    ResourceLeak,
+//    HealthCheckFailure
+//}
 
 public enum MessageBusHealthIssueType
 {
@@ -293,13 +289,13 @@ public enum MessageBusHealthIssueType
     PerformanceIssue
 }
 
-public enum PoolIssueSeverity
-{
-    Low,
-    Medium,
-    High,
-    Critical
-}
+//public enum PoolIssueSeverity
+//{
+//    Low,
+//    Medium,
+//    High,
+//    Critical
+//}
 
 public enum MessageBusIssueSeverity
 {

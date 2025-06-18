@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using Ksql.EntityFrameworkCore.Modeling;
 using KsqlDsl.Modeling;
-using KsqlDsl.SchemaRegistry;
+using KsqlDsl.Serialization.Avro.Core;
 using Xunit;
 
 namespace KsqlDsl.Tests.SchemaRegistry

@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 using KsqlDsl.Core.Attributes;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.SchemaRegistry;
+using KsqlDsl.Serialization.Avro.Core;
 
 namespace KsqlDsl.Serialization.Avro.Internal
 {

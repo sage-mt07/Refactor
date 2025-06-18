@@ -1,7 +1,5 @@
-﻿using KsqlDsl.Attributes;
-using KsqlDsl.Core.Attributes;
+﻿using KsqlDsl.Core.Attributes;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Modeling;
 using System;
 using System.Collections.Generic;
 using System.Linq;

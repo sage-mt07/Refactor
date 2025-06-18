@@ -1,6 +1,6 @@
-﻿using KsqlDsl.Core.Attributes;
+﻿using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Core.Attributes;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Validation;
 using System;
 using System.Collections.Generic;
 using System.Linq;

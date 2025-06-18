@@ -8,10 +8,15 @@ using System.Threading.Tasks;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Context;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Options;
-using KsqlDsl.Services;
-using KsqlDsl.Communication;
-using KsqlDsl.Validation;
+using KsqlDsl.Messaging.Producers;
+using KsqlDsl.Messaging.Consumers;
+using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Configuration.Options;
+using KsqlDsl.Serialization.Avro.Management;
+using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Messaging.Configuration;
+using KsqlDsl.Core.Models;
+using KsqlDsl.Messaging.Producers.Exception;
 
 namespace KsqlDsl
 {
@@ -25,12 +30,6 @@ namespace KsqlDsl
         private readonly Lazy<KafkaProducerManager> _producerManager;
         private readonly Lazy<KafkaConsumerManager> _consumerManager;
         
-        // 後方互換性維持
-        [Obsolete("内部実装はCore層統合されました。GetProducerManager()を使用してください", false)]
-        private readonly Lazy<KafkaProducerService> _producerService;
-        [Obsolete("内部実装はCore層統合されました。GetConsumerManager()を使用してください", false)]
-        private readonly Lazy<KafkaConsumerService> _consumerService;
-
         private AvroSchemaRegistrationService? _schemaRegistrationService;
 
         protected KafkaContext() : base()
@@ -76,46 +75,12 @@ namespace KsqlDsl
                 );
             });
 
-            // 後方互換性サービス
-            _producerService = new Lazy<KafkaProducerService>(() =>
-            {
-                Console.WriteLine("[WARNING] 旧KafkaProducerService使用：Core層統合後は非推奨");
-                try
-                {
-                    return new KafkaProducerService(Options);
-                }
-                catch (NotSupportedException)
-                {
-                    throw new InvalidOperationException(
-                        "KafkaProducerServiceは廃止されました。Core層統合APIを使用してください。");
-                }
-            });
-
-            _consumerService = new Lazy<KafkaConsumerService>(() =>
-            {
-                Console.WriteLine("[WARNING] 旧KafkaConsumerService使用：Core層統合後は非推奨");
-                try
-                {
-                    return new KafkaConsumerService(Options);
-                }
-                catch (NotSupportedException)
-                {
-                    throw new InvalidOperationException(
-                        "KafkaConsumerServiceは廃止されました。Core層統合APIを使用してください。");
-                }
-            });
+      
         }
 
         // Core層統合API
         internal KafkaProducerManager GetProducerManager() => _producerManager.Value;
         internal KafkaConsumerManager GetConsumerManager() => _consumerManager.Value;
-
-        // 後方互換性API（廃止予定）
-        [Obsolete("GetProducerService()は廃止予定です。Core層統合APIを使用してください。", false)]
-        internal KafkaProducerService GetProducerService() => _producerService.Value;
-
-        [Obsolete("GetConsumerService()は廃止予定です。Core層統合APIを使用してください。", false)]
-        internal KafkaConsumerService GetConsumerService() => _consumerService.Value;
 
         public override async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
         {
@@ -181,7 +146,7 @@ namespace KsqlDsl
                 return false;
 
             var topicName = entityModel.TopicAttribute?.TopicName ?? typeof(T).Name;
-            var valueSchema = KsqlDsl.SchemaRegistry.SchemaGenerator.GenerateSchema<T>();
+            var valueSchema = SchemaGenerator.GenerateSchema<T>();
 
             return await _schemaRegistrationService.CheckSchemaCompatibilityAsync($"{topicName}-value", valueSchema);
         }
@@ -196,11 +161,8 @@ namespace KsqlDsl
                 "=== 上位層サービス状態 ===",
                 $"ProducerManager: {(_producerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
                 $"ConsumerManager: {(_consumerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
-                $"SchemaRegistration: {(_schemaRegistrationService != null ? "有効" : "無効")}",
-                "",
-                "=== 後方互換性状態 ===",
-                $"旧ProducerService: {(_producerService.IsValueCreated ? "使用中（非推奨）" : "未使用")}",
-                $"旧ConsumerService: {(_consumerService.IsValueCreated ? "使用中（非推奨）" : "未使用")}"
+                $"SchemaRegistration: {(_schemaRegistrationService != null ? "有効" : "無効")}"
+
             };
 
             if (Options.TopicOverrideService.GetAllOverrides().Any())
@@ -224,18 +186,6 @@ namespace KsqlDsl
                 if (_consumerManager.IsValueCreated)
                     _consumerManager.Value.Dispose();
 
-                // 後方互換性サービスの破棄
-                if (_producerService.IsValueCreated)
-                {
-                    try { _producerService.Value.Dispose(); }
-                    catch (NotSupportedException) { /* 廃止済みのため無視 */ }
-                }
-
-                if (_consumerService.IsValueCreated)
-                {
-                    try { _consumerService.Value.Dispose(); }
-                    catch (NotSupportedException) { /* 廃止済みのため無視 */ }
-                }
 
                 if (Options.EnableDebugLogging)
                     Console.WriteLine("[DEBUG] KafkaContext.Dispose: Core層統合リソース解放完了");

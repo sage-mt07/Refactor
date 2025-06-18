@@ -1,7 +1,7 @@
-﻿using KsqlDsl.Core.Abstractions;
+﻿using KsqlDsl.Configuration.Builders;
+using KsqlDsl.Configuration.Options;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Modeling;
-using KsqlDsl.Options;
 using System;
 using System.Collections.Generic;
 using System.Linq;

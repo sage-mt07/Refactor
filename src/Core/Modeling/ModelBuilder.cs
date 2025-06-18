@@ -1,7 +1,8 @@
-﻿using KsqlDsl.Core.Attributes;
-using KsqlDsl.SchemaRegistry;
-using KsqlDsl.Services;
-using KsqlDsl.Validation;
+﻿using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Configuration.Validation;
+using KsqlDsl.Core.Attributes;
+using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Serialization.Avro.Management;
 using System;
 using System.Collections.Generic;
 using System.Linq;

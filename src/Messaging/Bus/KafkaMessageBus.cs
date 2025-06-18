@@ -1,7 +1,4 @@
-﻿using KsqlDsl.Communication;
-using KsqlDsl.Messaging.Abstractions;
-using KsqlDsl.Messaging.Consumers.Subscription;
-using KsqlDsl.Messaging.Producers.Core;
+﻿using KsqlDsl.Messaging.Abstractions;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;

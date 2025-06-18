@@ -1,6 +1,7 @@
 using KsqlDsl.Attributes;
+using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Configuration.Builders;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Options;
 using KsqlDsl.Services;
 using KsqlDsl.Tests.SchemaRegistry;
 using System;
@@ -44,7 +45,7 @@ namespace KsqlDsl.Tests
         {
             // Arrange
             var mockClient = new MockSchemaRegistryClient();
-            var service = new AvroSchemaRegistrationService(mockClient, Validation.ValidationMode.Strict, true);
+            var service = new AvroSchemaRegistrationService(mockClient, ValidationMode.Strict, true);
             
             var modelBuilder = new ModelBuilder();
             modelBuilder.Event<AvroTestEvent>();
@@ -65,7 +66,7 @@ namespace KsqlDsl.Tests
         public async Task AvroSchemaRegistrationService_WithNullClient_Should_Skip()
         {
             // Arrange
-            var service = new AvroSchemaRegistrationService(null, Validation.ValidationMode.Strict, true);
+            var service = new AvroSchemaRegistrationService(null, ValidationMode.Strict, true);
             
             var modelBuilder = new ModelBuilder();
             modelBuilder.Event<AvroTestEvent>();
@@ -82,7 +83,7 @@ namespace KsqlDsl.Tests
         {
             // Arrange
             var mockClient = new MockSchemaRegistryClient();
-            var service = new AvroSchemaRegistrationService(mockClient, Validation.ValidationMode.Strict, true);
+            var service = new AvroSchemaRegistrationService(mockClient, ValidationMode.Strict, true);
             
             var modelBuilder = new ModelBuilder();
             modelBuilder.SetSchemaRegistrationService(service);
@@ -102,7 +103,7 @@ namespace KsqlDsl.Tests
         {
             // Arrange
             var mockClient = new MockSchemaRegistryClient();
-            var service = new AvroSchemaRegistrationService(mockClient, Validation.ValidationMode.Strict, true);
+            var service = new AvroSchemaRegistrationService(mockClient, ValidationMode.Strict, true);
             
             var modelBuilder = new ModelBuilder();
             modelBuilder.SetSchemaRegistrationService(service);

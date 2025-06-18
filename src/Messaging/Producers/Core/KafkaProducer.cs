@@ -4,15 +4,14 @@
 // =============================================================================
 
 using Confluent.Kafka;
-using KsqlDsl.Avro;
-using KsqlDsl.Communication;
 using KsqlDsl.Core.Modeling;
+using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
+using KsqlDsl.Monitoring.Metrics;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -88,115 +87,29 @@ namespace KsqlDsl.Messaging.Producers.Core
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get assigned partitions: {EntityType}", typeof(T).Name);
-                return new List<TopicPartition>();
-            }
-        }
+                stopwatch.Stop();
+                UpdateSendStats(success: false, stopwatch.Elapsed);
 
-        private void EnsureSubscribed()
-        {
-            if (!_subscribed)
-            {
-                try
-                {
-                    _rawConsumer.Subscribe(TopicName);
-                    _subscribed = true;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to subscribe to topic: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
-                    throw;
-                }
-            }
-        }
+                _logger.LogError(ex, "Failed to send message: {EntityType}", typeof(T).Name);
 
-        private async Task<KafkaMessage<T>> DeserializeMessageAsync(ConsumeResult<object, object> consumeResult)
-        {
-            await Task.Delay(1);
-
-            try
-            {
-                T value;
-                if (consumeResult.Message.Value != null)
+                // ✅ 正しい戻り値型で返す
+                return new KafkaDeliveryResult
                 {
-                    var deserializedValue = _valueDeserializer.Deserialize(
-                        ReadOnlySpan<byte>.Empty,
-                        false,
-                        new SerializationContext(MessageComponentType.Value, TopicName));
-
-                    value = (T)deserializedValue;
-                }
-                else
-                {
-                    throw new InvalidOperationException("Message value cannot be null");
-                }
-
-                object? key = null;
-                if (consumeResult.Message.Key != null)
-                {
-                    key = _keyDeserializer.Deserialize(
-                        ReadOnlySpan<byte>.Empty,
-                        false,
-                        new SerializationContext(MessageComponentType.Key, TopicName));
-                }
-
-                return new KafkaMessage<T>
-                {
-                    Value = value,
-                    Key = key,
-                    Topic = consumeResult.Topic,
-                    Partition = consumeResult.Partition.Value,
-                    Offset = consumeResult.Offset.Value,
-                    Timestamp = consumeResult.Message.Timestamp.UtcDateTime,
-                    Headers = consumeResult.Message.Headers
+                    Topic = TopicName,
+                    Partition = -1,  // エラー時は無効な値
+                    Offset = -1,     // エラー時は無効な値
+                    Timestamp = DateTime.UtcNow,
+                    Status = PersistenceStatus.NotPersisted,
+                    Latency = stopwatch.Elapsed
                 };
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to deserialize message: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
-                throw;
-            }
         }
 
-        private void UpdateConsumeStats(bool success, TimeSpan processingTime)
-        {
-            lock (_stats)
-            {
-                _stats.TotalMessagesReceived++;
 
-                if (success)
-                    _stats.ProcessedMessages++;
-                else
-                    _stats.FailedMessages++;
 
-                if (_stats.MinProcessingTime == TimeSpan.Zero || processingTime < _stats.MinProcessingTime)
-                    _stats.MinProcessingTime = processingTime;
-                if (processingTime > _stats.MaxProcessingTime)
-                    _stats.MaxProcessingTime = processingTime;
+     
+      
 
-                if (_stats.TotalMessagesReceived == 1)
-                {
-                    _stats.AverageProcessingTime = processingTime;
-                }
-                else
-                {
-                    var totalMs = _stats.AverageProcessingTime.TotalMilliseconds * (_stats.TotalMessagesReceived - 1) + processingTime.TotalMilliseconds;
-                    _stats.AverageProcessingTime = TimeSpan.FromMilliseconds(totalMs / _stats.TotalMessagesReceived);
-                }
-
-                _stats.LastMessageReceived = DateTime.UtcNow;
-            }
-        }
-
-        private void UpdateBatchConsumeStats(int messageCount, TimeSpan processingTime)
-        {
-            lock (_stats)
-            {
-                _stats.TotalMessagesReceived += messageCount;
-                _stats.ProcessedMessages += messageCount;
-                _stats.LastMessageReceived = DateTime.UtcNow;
-            }
-        }
 
         public void Dispose()
         {
@@ -204,19 +117,14 @@ namespace KsqlDsl.Messaging.Producers.Core
             {
                 try
                 {
-                    if (_subscribed)
-                    {
-                        _rawConsumer.Unsubscribe();
-                        _subscribed = false;
-                    }
-
-                    _rawConsumer.Close();
+                    // ✅ Producer用の適切なDispose処理
+                    _rawProducer?.Flush(TimeSpan.FromSeconds(10));
+                    _rawProducer?.Dispose();
                 }
-                catch (Exception ex)
+                catch (System.Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error disposing consumer: {EntityType}", typeof(T).Name);
+                    _logger.LogWarning(ex, "Error disposing producer: {EntityType}", typeof(T).Name);
                 }
-
                 _disposed = true;
             }
         }

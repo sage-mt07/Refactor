@@ -5,10 +5,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Confluent.Kafka;
-using KsqlDsl.Communication;
 using KsqlDsl.Messaging.Abstractions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using KsqlDsl.Monitoring.Metrics;
+using KsqlDsl.Core.Models;
+using KsqlDsl.Messaging.Producers.Core;
+using KsqlDsl.Messaging.Producers.Exception;
 
 namespace KsqlDsl.Messaging.Producers.Pool
 {
@@ -139,7 +142,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
             };
         }
 
-        public async Task<PoolHealthStatus> GetHealthStatusAsync()
+        public async Task<KsqlDsl.Core.Abstractions.PoolHealthStatus> GetHealthStatusAsync()
         {
             await Task.Delay(1);
 
@@ -147,9 +150,9 @@ namespace KsqlDsl.Messaging.Producers.Pool
             {
                 var status = new PoolHealthStatus
                 {
-                    HealthLevel = PoolHealthLevel.Healthy,
+                    HealthLevel = KsqlDsl.Messaging.Abstractions.PoolHealthLevel.Healthy,
                     Statistics = GetStatistics(),
-                    Issues = new List<PoolHealthIssue>(),
+                    Issues = new List<KsqlDsl.Core.Abstractions.PoolHealthIssue>(),
                     LastCheck = DateTime.UtcNow
                 };
 
@@ -177,39 +180,39 @@ namespace KsqlDsl.Messaging.Producers.Pool
 
                 if (unhealthyPools > _pools.Count * 0.2)
                 {
-                    status.HealthLevel = PoolHealthLevel.Critical;
+                    status.HealthLevel = KsqlDsl.Messaging.Abstractions.PoolHealthLevel.Critical;
                     status.Issues.Add(new PoolHealthIssue
                     {
-                        Type = PoolHealthIssueType.HighFailureRate,
+                        Type = KsqlDsl.Messaging.Abstractions.PoolHealthIssueType.HighFailureRate,
                         Description = $"{unhealthyPools} pools have high failure rates",
-                        Severity = PoolIssueSeverity.Critical
+                        Severity = KsqlDsl.Messaging.Abstractions.PoolIssueSeverity.Critical
                     });
                 }
                 else if (overloadedPools > 0)
                 {
-                    status.HealthLevel = PoolHealthLevel.Warning;
+                    status.HealthLevel = KsqlDsl.Messaging.Abstractions.PoolHealthLevel.Warning;
                     status.Issues.Add(new PoolHealthIssue
                     {
-                        Type = PoolHealthIssueType.PoolExhaustion,
+                        Type = KsqlDsl.Messaging.Abstractions.PoolHealthIssueType.PoolExhaustion,
                         Description = $"{overloadedPools} pools are experiencing high load",
-                        Severity = PoolIssueSeverity.Warning
+                        Severity = KsqlDsl.Messaging.Abstractions.PoolIssueSeverity.Warning
                     });
                 }
 
                 return status;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _logger.LogError(ex, "Failed to get pool health status");
                 return new PoolHealthStatus
                 {
-                    HealthLevel = PoolHealthLevel.Critical,
+                    HealthLevel = KsqlDsl.Messaging.Abstractions.PoolHealthLevel.Critical,
                     Issues = new List<PoolHealthIssue>
                     {
                         new() {
-                            Type = PoolHealthIssueType.HealthCheckFailure,
+                            Type = KsqlDsl.Messaging.Abstractions.PoolHealthIssueType.HealthCheckFailure,
                             Description = $"Health check failed: {ex.Message}",
-                            Severity = PoolIssueSeverity.Critical
+                            Severity = KsqlDsl.Messaging.Abstractions.PoolIssueSeverity.Critical
                         }
                     },
                     LastCheck = DateTime.UtcNow
@@ -271,7 +274,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
                 var producer = new ProducerBuilder<object, object>(config).Build();
                 return producer;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _logger.LogError(ex, "Failed to create producer for {ProducerKey}", key);
 
@@ -308,7 +311,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
             try
             {
                 var handle = pooledProducer.Producer.Handle;
-                return handle != null && !handle.IsClosed;
+                return handle != null ;
             }
             catch
             {
@@ -322,7 +325,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
             {
                 producer?.Dispose();
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _logger.LogWarning(ex, "Error disposing producer");
             }
@@ -368,7 +371,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
             {
                 OptimizePools();
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _logger.LogError(ex, "Error during pool maintenance");
             }
@@ -380,7 +383,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
             {
                 var _ = GetHealthStatusAsync().GetAwaiter().GetResult();
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _logger.LogError(ex, "Error during pool health check");
             }

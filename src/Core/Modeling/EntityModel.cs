@@ -1,5 +1,5 @@
-﻿using KsqlDsl.Core.Attributes;
-using KsqlDsl.Validation;
+﻿using KsqlDsl.Configuration.Validation;
+using KsqlDsl.Core.Attributes;
 using System;
 using System.Reflection;
 

@@ -1,11 +1,12 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using KsqlDsl.Serialization.Abstractions;
+﻿using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Management;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro
@@ -23,14 +24,18 @@ namespace KsqlDsl.Serialization.Avro
 
         public AvroSerializationManager(
             ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
-            ILogger<AvroSerializationManager<T>>? logger = null)
+            ILoggerFactory? logger = null)
         {
             var factory = new AvroSerializerFactory(schemaRegistryClient, logger);
             _cache = new AvroSerializerCache(factory, logger);
             _versionManager = new AvroSchemaVersionManager(
                 new SchemaRegistryClientWrapper(schemaRegistryClient), logger);
             _schemaBuilder = new AvroSchemaBuilder();
-            _logger = logger;
+
+            _logger = logger?.CreateLogger<AvroSerializationManager<T>>()
+                     ?? NullLogger<AvroSerializationManager<T>>.Instance;
+
+
         }
 
         public async Task<SerializerPair<T>> GetSerializersAsync(CancellationToken cancellationToken = default)
@@ -126,7 +131,7 @@ namespace KsqlDsl.Serialization.Avro
         }
     }
 
-    internal class SchemaRegistryClientWrapper : KsqlDsl.SchemaRegistry.ISchemaRegistryClient
+    internal class SchemaRegistryClientWrapper :ISchemaRegistryClient
     {
         private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
 
@@ -162,10 +167,10 @@ namespace KsqlDsl.Serialization.Avro
             return await _client.RegisterSchemaAsync(subject, schema);
         }
 
-        public async Task<KsqlDsl.SchemaRegistry.AvroSchemaInfo> GetLatestSchemaAsync(string subject)
+        public async Task<AvroSchemaInfo> GetLatestSchemaAsync(string subject)
         {
             var schema = await _client.GetLatestSchemaAsync(subject);
-            return new KsqlDsl.SchemaRegistry.AvroSchemaInfo
+            return new AvroSchemaInfo
             {
                 Id = schema.Id,
                 Version = schema.Version,
@@ -174,10 +179,10 @@ namespace KsqlDsl.Serialization.Avro
             };
         }
 
-        public async Task<KsqlDsl.SchemaRegistry.AvroSchemaInfo> GetSchemaByIdAsync(int schemaId)
+        public async Task<AvroSchemaInfo> GetSchemaByIdAsync(int schemaId)
         {
             var schema = await _client.GetSchemaAsync(schemaId);
-            return new KsqlDsl.SchemaRegistry.AvroSchemaInfo
+            return new AvroSchemaInfo
             {
                 Id = schema.Id,
                 Version = schema.Version,
@@ -198,10 +203,10 @@ namespace KsqlDsl.Serialization.Avro
             return await _client.GetSubjectVersionsAsync(subject);
         }
 
-        public async Task<KsqlDsl.SchemaRegistry.AvroSchemaInfo> GetSchemaAsync(string subject, int version)
+        public async Task<AvroSchemaInfo> GetSchemaAsync(string subject, int version)
         {
             var schema = await _client.GetSchemaAsync(subject, version);
-            return new KsqlDsl.SchemaRegistry.AvroSchemaInfo
+            return new AvroSchemaInfo
             {
                 Id = schema.Id,
                 Version = schema.Version,
@@ -220,3 +225,4 @@ namespace KsqlDsl.Serialization.Avro
             _client?.Dispose();
         }
     }
+}

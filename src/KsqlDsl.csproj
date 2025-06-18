@@ -33,9 +33,4 @@
 		<PackageReference Include="System.Diagnostics.DiagnosticSource" Version="8.0.0" />
 		<PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />
 	</ItemGroup>
-
-	<ItemGroup>
-	  <Folder Include="Core\Models\" />
-	  <Folder Include="Messaging\Configuration\" />
-	</ItemGroup>
 </Project>

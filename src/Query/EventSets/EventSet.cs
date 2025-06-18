@@ -28,15 +28,6 @@ namespace KsqlDsl.Query.EventSets
             return new EventSet<T>(context, entityModel, expression);
         }
 
-        // 型変換メソッド - LINQ Extensions用
-        protected override IEventSet<TResult> CreateEventSet<TResult>(Expression expression)
-        {
-            return new EventSet<TResult>(_context, _entityModel, expression);
-        }
 
-        protected override IEventSet<T> CreateEventSet(Expression expression)
-        {
-            return new EventSet<T>(_context, _entityModel, expression);
-        }
     }
 }

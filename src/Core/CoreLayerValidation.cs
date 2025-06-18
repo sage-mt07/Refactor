@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Reflection;
 using KsqlDsl.Core.Abstractions;
@@ -82,11 +83,6 @@ namespace KsqlDsl.Core
             return referencedTypes.Where(t => t.Assembly != type.Assembly);
         }
 
-        public class ValidationResult
-        {
-            public bool IsValid { get; set; }
-            public List<string> Errors { get; set; } = new();
-            public List<string> Warnings { get; set; } = new();
-        }
+     
     }
 }
