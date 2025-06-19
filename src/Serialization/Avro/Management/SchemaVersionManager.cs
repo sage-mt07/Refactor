@@ -1,22 +1,23 @@
-﻿using Confluent.SchemaRegistry;
-using KsqlDsl.Serialization.Avro.Cache;
+﻿using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro.Management
 {
     public class SchemaVersionManager
     {
-        private readonly ISchemaRegistryClient _schemaRegistryClient;
+        // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientを使用
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
         private readonly AvroSerializerCache _serializerCache;
         private readonly ILogger<SchemaVersionManager>? _logger;
 
         public SchemaVersionManager(
-            ISchemaRegistryClient schemaRegistryClient,
+            ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
             AvroSerializerCache serializerCache,
             ILogger<SchemaVersionManager>? logger = null)
         {
@@ -25,7 +26,7 @@ namespace KsqlDsl.Serialization.Avro.Management
             _logger = logger;
         }
 
-        public async Task<bool> CanUpgradeSchemaAsync<T>(string topicName)
+        public async Task<bool> CanUpgradeSchemaAsync<T>(string topicName) where T : class
         {
             var valueSubject = $"{topicName}-value";
             var currentSchema = await GetLatestSchemaAsync(valueSubject);
@@ -34,10 +35,13 @@ namespace KsqlDsl.Serialization.Avro.Management
                 return true;
 
             var newSchema = SchemaGenerator.GenerateSchema<T>();
-            return await _schemaRegistryClient.CheckCompatibilityAsync(valueSubject, newSchema);
+
+            // ✅ 修正: IsCompatibleAsyncを使用
+            var schemaObj = new ConfluentSchemaRegistry.Schema(newSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            return await _schemaRegistryClient.IsCompatibleAsync(valueSubject, schemaObj);
         }
 
-        public async Task<SchemaUpgradeResult> UpgradeSchemaAsync<T>(string topicName)
+        public async Task<SchemaUpgradeResult> UpgradeSchemaAsync<T>(string topicName) where T : class
         {
             if (!await CanUpgradeSchemaAsync<T>(topicName))
             {
@@ -56,8 +60,12 @@ namespace KsqlDsl.Serialization.Avro.Management
                 var keySchema = SchemaGenerator.GenerateKeySchema<T>();
                 var valueSchema = SchemaGenerator.GenerateSchema<T>();
 
-                var keySchemaId = await _schemaRegistryClient.RegisterSchemaAsync(keySubject, keySchema);
-                var valueSchemaId = await _schemaRegistryClient.RegisterSchemaAsync(valueSubject, valueSchema);
+                // ✅ 修正: 新しいAPIを使用（Schema オブジェクトを作成）
+                var keySchemaObj = new ConfluentSchemaRegistry.Schema(keySchema, ConfluentSchemaRegistry.SchemaType.Avro);
+                var valueSchemaObj = new ConfluentSchemaRegistry.Schema(valueSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+
+                var keySchemaId = await _schemaRegistryClient.RegisterSchemaAsync(keySubject, keySchemaObj);
+                var valueSchemaId = await _schemaRegistryClient.RegisterSchemaAsync(valueSubject, valueSchemaObj);
 
                 _serializerCache.ClearCache<T>();
 
@@ -84,20 +92,22 @@ namespace KsqlDsl.Serialization.Avro.Management
 
         public async Task<List<SchemaVersionInfo>> GetSchemaVersionHistoryAsync(string subject)
         {
-            var versions = await _schemaRegistryClient.GetSchemaVersionsAsync(subject);
+            // ✅ 修正: GetSubjectVersionsAsyncを使用
+            var versions = await _schemaRegistryClient.GetSubjectVersionsAsync(subject);
             var result = new List<SchemaVersionInfo>();
 
             foreach (var version in versions)
             {
                 try
                 {
-                    var schema = await _schemaRegistryClient.GetSchemaAsync(subject, version);
+                    // ✅ 修正: GetRegisteredSchemaAsyncを使用
+                    var schema = await _schemaRegistryClient.GetRegisteredSchemaAsync(subject, version);
                     result.Add(new SchemaVersionInfo
                     {
                         Subject = subject,
                         Version = version,
                         SchemaId = schema.Id,
-                        Schema = schema.AvroSchema,
+                        Schema = schema.SchemaString,
                         RegistrationTime = DateTime.UtcNow
                     });
                 }
@@ -111,7 +121,7 @@ namespace KsqlDsl.Serialization.Avro.Management
             return result.OrderBy(v => v.Version).ToList();
         }
 
-        public async Task<SchemaCompatibilityReport> CheckCompatibilityAsync<T>(string topicName)
+        public async Task<SchemaCompatibilityReport> CheckCompatibilityAsync<T>(string topicName) where T : class
         {
             var report = new SchemaCompatibilityReport
             {
@@ -128,8 +138,12 @@ namespace KsqlDsl.Serialization.Avro.Management
                 var keySchema = SchemaGenerator.GenerateKeySchema<T>();
                 var valueSchema = SchemaGenerator.GenerateSchema<T>();
 
-                report.KeyCompatible = await _schemaRegistryClient.CheckCompatibilityAsync(keySubject, keySchema);
-                report.ValueCompatible = await _schemaRegistryClient.CheckCompatibilityAsync(valueSubject, valueSchema);
+                // ✅ 修正: IsCompatibleAsyncを使用
+                var keySchemaObj = new ConfluentSchemaRegistry.Schema(keySchema, ConfluentSchemaRegistry.SchemaType.Avro);
+                var valueSchemaObj = new ConfluentSchemaRegistry.Schema(valueSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+
+                report.KeyCompatible = await _schemaRegistryClient.IsCompatibleAsync(keySubject, keySchemaObj);
+                report.ValueCompatible = await _schemaRegistryClient.IsCompatibleAsync(valueSubject, valueSchemaObj);
 
                 if (!report.KeyCompatible)
                     report.Issues.Add("Key schema is not compatible with existing schema");
@@ -158,9 +172,17 @@ namespace KsqlDsl.Serialization.Avro.Management
         {
             try
             {
-                await _schemaRegistryClient.GetSchemaAsync(subject, version);
-                _logger?.LogInformation("Schema version {Version} deleted for subject {Subject}", version, subject);
-                return true;
+                // ⚠️ 注意: Confluent.SchemaRegistry.ISchemaRegistryClient には削除メソッドがないため、
+                // この機能は現在実装されていません。
+                // 将来的にSDKが更新された場合や、REST APIを直接呼び出す実装に変更する場合のためのスタブです。
+
+                _logger?.LogWarning("Schema deletion is not supported by the current Confluent Schema Registry .NET client");
+
+                // TODO: REST API を直接呼び出して削除を実装する場合は、以下のようなHTTP呼び出しが必要:
+                // DELETE /subjects/{subject}/versions/{version}
+                // または DELETE /subjects/{subject}?permanent=true (全バージョン削除)
+                await Task.CompletedTask;
+                return false; // 現在は削除できないことを示す
             }
             catch (Exception ex)
             {
@@ -173,6 +195,7 @@ namespace KsqlDsl.Serialization.Avro.Management
         {
             try
             {
+                // ✅ 修正: GetRegisteredSchemaAsyncを使用
                 var registeredSchema = await _schemaRegistryClient.GetRegisteredSchemaAsync(subject, -1);
 
                 return new AvroSchemaInfo
@@ -184,7 +207,8 @@ namespace KsqlDsl.Serialization.Avro.Management
                     RegisteredAt = DateTime.UtcNow,
                     LastUsed = DateTime.UtcNow,
                     Version = registeredSchema.Version,
-                    UsageCount = 0
+                    UsageCount = 0,
+                    AvroSchema = registeredSchema.SchemaString
                 };
             }
             catch
@@ -194,31 +218,14 @@ namespace KsqlDsl.Serialization.Avro.Management
         }
     }
 
-    //public class SchemaUpgradeResult
-    //{
-    //    public bool Success { get; set; }
-    //    public string? Reason { get; set; }
-    //    public int? NewKeySchemaId { get; set; }
-    //    public int? NewValueSchemaId { get; set; }
-    //}
+    // ✅ 必要なクラスの定義（重複を避けるため、存在しない場合のみ定義）
+    public class SchemaUpgradeResult
+    {
+        public bool Success { get; set; }
+        public string? Reason { get; set; }
+        public int? NewKeySchemaId { get; set; }
+        public int? NewValueSchemaId { get; set; }
+    }
 
-    //public class SchemaVersionInfo
-    //{
-    //    public string Subject { get; set; } = string.Empty;
-    //    public int Version { get; set; }
-    //    public int SchemaId { get; set; }
-    //    public string Schema { get; set; } = string.Empty;
-    //    public DateTime RegistrationTime { get; set; }
-    //}
 
-    //public class SchemaCompatibilityReport
-    //{
-    //    public Type EntityType { get; set; } = null!;
-    //    public string TopicName { get; set; } = string.Empty;
-    //    public DateTime CheckTime { get; set; }
-    //    public bool OverallCompatible { get; set; }
-    //    public bool KeyCompatible { get; set; }
-    //    public bool ValueCompatible { get; set; }
-    //    public List<string> Issues { get; set; } = new();
-    //}
 }
