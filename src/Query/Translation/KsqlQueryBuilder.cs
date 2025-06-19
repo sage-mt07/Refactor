@@ -98,21 +98,19 @@ namespace KsqlDsl.Query.Translation
             {
                 var joinCall = result.MethodCalls.First(mc => mc.Method.Name == "Join");
                 // JOINの場合は構文全体を再構築
-                return; // 別途実装
+                _joinBuilder.Build(joinCall); 
             }
         }
 
         private string BuildAggregateSelect(Expression selectExpression)
         {
             // 既存KsqlAggregateBuilderを活用
-            return KsqlDsl.Ksql.KsqlAggregateBuilder.Build(selectExpression);
+            return  _groupByBuilder.Build(selectExpression);
         }
 
         private string BuildWhereClause(Expression whereExpression)
         {
-            // 既存KsqlConditionBuilderを活用
-            var conditionBuilder = new KsqlDsl.Ksql.KsqlConditionBuilder();
-            return conditionBuilder.Build(whereExpression);
+            return _selectBuilder.Build(whereExpression);
         }
     }
 }

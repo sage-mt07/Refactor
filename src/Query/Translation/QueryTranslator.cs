@@ -58,7 +58,7 @@ namespace KsqlDsl.Query.Translation
 
         public bool IsPullQuery()
         {
-            return _diagnostics._metadata.TryGetValue("IsPullQuery", out var value) && (bool)value;
+            return _diagnostics.MetaData.TryGetValue("IsPullQuery", out var value) && (bool)value;
         }
     }
 }

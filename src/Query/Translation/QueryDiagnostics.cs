@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 
 namespace KsqlDsl.Query.Translation
@@ -15,6 +16,7 @@ namespace KsqlDsl.Query.Translation
         private DateTime _startTime;
         private TimeSpan _analysisTime;
 
+        public Dictionary<string, object> MetaData => _metadata;
         public QueryDiagnostics()
         {
             _startTime = DateTime.UtcNow;

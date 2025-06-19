@@ -42,6 +42,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
                 _config.HealthCheckInterval, _config.HealthCheckInterval);
         }
 
+        // ✅ IPoolManager<ProducerKey, IProducer<object, object>>のメソッド名に合わせて修正
         public IProducer<object, object> RentResource(ProducerKey key)
         {
             if (key == null)
@@ -81,6 +82,12 @@ namespace KsqlDsl.Messaging.Producers.Pool
             }
 
             return newProducer;
+        }
+
+        // ✅ インターフェースに合わせたメソッド名に修正
+        public IProducer<object, object> RentItem(ProducerKey key)
+        {
+            return RentResource(key);
         }
 
         public void ReturnResource(ProducerKey key, IProducer<object, object> producer)
@@ -130,6 +137,12 @@ namespace KsqlDsl.Messaging.Producers.Pool
             }
         }
 
+        // ✅ インターフェースに合わせたメソッド名に修正
+        public void ReturnItem(ProducerKey key, IProducer<object, object> item)
+        {
+            ReturnResource(key, item);
+        }
+
         public PoolStatistics GetStatistics()
         {
             return new PoolStatistics
@@ -143,6 +156,12 @@ namespace KsqlDsl.Messaging.Producers.Pool
                 AverageUtilization = CalculateAverageUtilization(),
                 LastUpdated = DateTime.UtcNow
             };
+        }
+
+        // ✅ IPoolManagerインターフェースの不足メソッドを追加
+        public async Task<PoolHealthStatus> GetHealthAsync()
+        {
+            return await GetHealthStatusAsync();
         }
 
         public async Task<PoolHealthStatus> GetHealthStatusAsync()
@@ -223,6 +242,12 @@ namespace KsqlDsl.Messaging.Producers.Pool
             }
         }
 
+        // ✅ IPoolManagerインターフェースの不足メソッドを追加
+        public int GetActiveItemCount()
+        {
+            return GetActiveResourceCount();
+        }
+
         public int GetActiveResourceCount()
         {
             return _poolMetrics.Values.Sum(m => m.ActiveProducers);
@@ -267,6 +292,12 @@ namespace KsqlDsl.Messaging.Producers.Pool
             {
                 _logger.LogInformation("Optimized pools: trimmed {TrimCount} excess producers", trimCount);
             }
+        }
+
+        // ✅ IPoolManagerインターフェースの不足メソッドを追加
+        public void TrimExcess()
+        {
+            OptimizePools();
         }
 
         private IProducer<object, object> CreateNewProducer(ProducerKey key)

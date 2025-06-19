@@ -1,4 +1,5 @@
 ﻿
+using KsqlDsl.Query.Builders;
 using System;
 using System.Linq.Expressions;
 using System.Text;
@@ -63,12 +64,12 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                         // GroupBy後のWhereはHAVING句になる
                         if (_hasAggregation && _isAfterGroupBy)
                         {
-                            var havingBuilder = new KsqlHavingBuilder();
+                            var havingBuilder = new HavingBuilder();
                             _havingClause = havingBuilder.Build(whereExpression);
                         }
                         else
                         {
-                            var conditionBuilder = new KsqlConditionBuilder();
+                            var conditionBuilder = new SelectBuilder();
                             _whereClause = conditionBuilder.Build(whereExpression);
                             // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
                             // _isPullQuery = true; // 削除
@@ -86,12 +87,12 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                         // GroupBy後のSelectは集約クエリとして処理
                         if (_hasAggregation && _isAfterGroupBy)
                         {
-                            var aggregateBuilder = KsqlAggregateBuilder.Build(selectExpression);
+                            var aggregateBuilder =new GroupByBuilder().Build(selectExpression);
                             _selectClause = aggregateBuilder;
                         }
                         else
                         {
-                            var projectionBuilder = new KsqlProjectionBuilder();
+                            var projectionBuilder = new ProjectionBuilder();
                             _selectClause = projectionBuilder.Build(selectExpression);
                         }
                     }
@@ -104,7 +105,7 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                     var groupByExpression = UnwrapLambda(node.Arguments[1]);
                     if (groupByExpression != null)
                     {
-                        var groupByBuilder = KsqlGroupByBuilder.Build(groupByExpression);
+                        var groupByBuilder =new GroupByBuilder().Build(groupByExpression);
                         _groupByClause = groupByBuilder;
                         _hasAggregation = true;
                         _isAfterGroupBy = true;
@@ -143,7 +144,7 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
             case "Join":
                 if (node.Arguments.Count == 5)
                 {
-                    var joinBuilder = new KsqlJoinBuilder();
+                    var joinBuilder = new JoinBuilder();
                     _joinClause = joinBuilder.Build(node);
                     // 修正理由：内部判定ロジック削除（外部フラグ制御のため）
                     // _isPullQuery = false; // 削除
