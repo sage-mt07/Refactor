@@ -1,4 +1,4 @@
-﻿using KsqlDsl.Monitoring.Metrics;
+﻿using KsqlDsl.Serialization.Avro.Cache;
 using System;
 using System.Collections.Generic;
 

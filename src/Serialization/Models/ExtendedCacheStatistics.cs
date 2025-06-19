@@ -1,10 +1,7 @@
-﻿using KsqlDsl.Monitoring.Abstractions.Models;
+﻿using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Performance;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace KsqlDsl.Serialization.Models
 {

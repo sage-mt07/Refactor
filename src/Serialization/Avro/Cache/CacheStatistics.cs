@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace KsqlDsl.Monitoring.Metrics
+namespace KsqlDsl.Serialization.Avro.Cache
 {
     public class CacheStatistics
     {
