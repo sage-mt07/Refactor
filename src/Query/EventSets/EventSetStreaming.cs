@@ -15,7 +15,7 @@ namespace KsqlDsl.Query.EventSets
     /// EventSet Push/Pull型操作、EMIT制御
     /// 設計理由：ストリーミング関連責務の分離
     /// </summary>
-    public partial class EventSetStreaming<T> : EventSetCore<T> where T : class
+    public  class EventSetStreaming<T> : EventSetCore<T> where T : class
     {
         private readonly IQueryTranslator _queryTranslator;
 
@@ -179,10 +179,10 @@ namespace KsqlDsl.Query.EventSets
 
             try
             {
-                ConfigurationValidator.ValidateKsqlQueryContent(queryContent);
+                ValidateKsqlQueryContent(ksqlQuery);
 
                 // ConsumerManagerを使用（新しいアーキテクチャ）
-                var consumerManager = _context.GetConsumerManager(); // ✅ GetConsumerService → GetConsumerManager
+                var consumerManager = _context.GetConsumerManager();
                 var results = await ExecuteQueryWithConsumerManagerAsync<T>(consumerManager, ksqlQuery, cancellationToken);
 
                 ValidateQueryResults(results);
@@ -206,6 +206,38 @@ namespace KsqlDsl.Query.EventSets
             {
                 HandleQueryException(ex, topicName, "ToListAsync");
                 throw;
+            }
+        }
+        private void ValidateKsqlQueryContent(string queryContent)
+        {
+            if (string.IsNullOrWhiteSpace(queryContent))
+            {
+                throw new InvalidOperationException("Query content cannot be null or empty");
+            }
+
+            // 基本的なKSQL構文チェック
+            var trimmedQuery = queryContent.Trim();
+            if (!trimmedQuery.ToUpper().StartsWith("SELECT"))
+            {
+                throw new InvalidOperationException("Query must start with SELECT statement");
+            }
+
+            // 危険なクエリパターンをチェック
+            var dangerousPatterns = new[] { "DROP", "DELETE", "TRUNCATE", "ALTER" };
+            var upperQuery = queryContent.ToUpper();
+
+            foreach (var pattern in dangerousPatterns)
+            {
+                if (upperQuery.Contains(pattern))
+                {
+                    throw new InvalidOperationException($"Dangerous query pattern detected: {pattern}");
+                }
+            }
+
+            // KSQLエラーメッセージの検出
+            if (queryContent.Contains("/* KSQL変換エラー") || queryContent.Contains("KSQL変換エラー"))
+            {
+                throw new InvalidOperationException($"KSQL translation error detected in query: {queryContent}");
             }
         }
         private async Task<List<T>> ExecuteQueryWithConsumerManagerAsync<TResult>(

@@ -9,6 +9,10 @@ using System.Text.Json;
 
 namespace KsqlDsl.Serialization.Avro.Core;
 
+/// <summary>
+/// Avroスキーマ生成専門クラス
+/// 設計原則: Serialization層の責務のみ（Query層への依存禁止）
+/// </summary>
 public static class SchemaGenerator
 {
     public static string GenerateSchema<T>()
@@ -154,9 +158,13 @@ public static class SchemaGenerator
         return (keySchema, valueSchema);
     }
 
+    /// <summary>
+    /// Avroスキーマ生成用のプロパティフィルタリング
+    /// 責務: Serialization層のみ - KafkaIgnoreAttributeのフィルタリング
+    /// </summary>
     private static List<AvroField> GenerateFields(Type type)
     {
-        var properties = KsqlCreateStatementBuilder.GetSchemaProperties(type);
+        var properties = GetSerializableProperties(type);
         var fields = new List<AvroField>();
 
         foreach (var property in properties)
@@ -178,6 +186,56 @@ public static class SchemaGenerator
         }
 
         return fields;
+    }
+
+    /// <summary>
+    /// シリアライゼーション対象のプロパティを取得
+    /// 責務: Avroスキーマ生成のためのプロパティフィルタリングのみ
+    /// </summary>
+    private static PropertyInfo[] GetSerializableProperties(Type type)
+    {
+        if (type == null)
+            throw new ArgumentNullException(nameof(type));
+
+        var allProperties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+        // KafkaIgnoreAttributeが付いていないプロパティのみを返す
+        return Array.FindAll(allProperties, p => p.GetCustomAttribute<KafkaIgnoreAttribute>() == null);
+    }
+
+    /// <summary>
+    /// 統計情報生成のためのヘルパーメソッド
+    /// </summary>
+    public static SchemaGenerationStats GetGenerationStats(Type type)
+    {
+        if (type == null)
+            throw new ArgumentNullException(nameof(type));
+
+        var allProperties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var serializableProperties = GetSerializableProperties(type);
+        var ignoredProperties = GetIgnoredProperties(type);
+
+        return new SchemaGenerationStats
+        {
+            TotalProperties = allProperties.Length,
+            IncludedProperties = serializableProperties.Length,
+            IgnoredProperties = ignoredProperties.Length,
+            IgnoredPropertyNames = ignoredProperties.Select(p => p.Name).ToList()
+        };
+    }
+
+    /// <summary>
+    /// 無視されるプロパティを取得（統計情報用）
+    /// </summary>
+    private static PropertyInfo[] GetIgnoredProperties(Type type)
+    {
+        if (type == null)
+            throw new ArgumentNullException(nameof(type));
+
+        var allProperties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+        // KafkaIgnoreAttributeが付いているプロパティのみを返す
+        return Array.FindAll(allProperties, p => p.GetCustomAttribute<KafkaIgnoreAttribute>() != null);
     }
 
     private static object MapToAvroType(PropertyInfo property)
@@ -274,7 +332,6 @@ public static class SchemaGenerator
         // 3. For reference types, check nullable context using NullabilityInfoContext (C# 8.0+)
         try
         {
-            // 修正：正しい名前空間で NullabilityInfoContext を使用
             var nullabilityContext = new NullabilityInfoContext();
             var nullabilityInfo = nullabilityContext.Create(property);
 
@@ -421,23 +478,5 @@ public static class SchemaGenerator
         {
             return false;
         }
-    }
-
-    public static SchemaGenerationStats GetGenerationStats(Type type)
-    {
-        if (type == null)
-            throw new ArgumentNullException(nameof(type));
-
-        var allProperties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var schemaProperties = KsqlCreateStatementBuilder.GetSchemaProperties(type);
-        var ignoredProperties = KsqlCreateStatementBuilder.GetIgnoredProperties(type);
-
-        return new SchemaGenerationStats
-        {
-            TotalProperties = allProperties.Length,
-            IncludedProperties = schemaProperties.Length,
-            IgnoredProperties = ignoredProperties.Length,
-            IgnoredPropertyNames = ignoredProperties.Select(p => p.Name).ToList()
-        };
     }
 }
