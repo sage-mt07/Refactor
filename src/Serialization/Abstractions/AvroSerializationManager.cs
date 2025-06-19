@@ -27,8 +27,8 @@ namespace KsqlDsl.Serialization.Abstractions
         {
             var factory = new AvroSerializerFactory(schemaRegistryClient, logger);
             _cache = new AvroSerializerCache(factory, logger);
-            _versionManager = new AvroSchemaVersionManager(
-                new SchemaRegistryClientWrapper(schemaRegistryClient), logger);
+            _versionManager = new AvroSchemaVersionManager(schemaRegistryClient, logger);
+
             _schemaBuilder = new AvroSchemaBuilder();
 
             _logger = logger?.CreateLogger<AvroSerializationManager<T>>()

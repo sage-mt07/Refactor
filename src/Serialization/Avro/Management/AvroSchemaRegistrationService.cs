@@ -1,22 +1,23 @@
-﻿using Confluent.SchemaRegistry;
-using KsqlDsl.Configuration.Abstractions;
+﻿using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro.Management
 {
     public class AvroSchemaRegistrationService
     {
-        private readonly ISchemaRegistryClient? _schemaRegistryClient;
+        // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientを使用
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient? _schemaRegistryClient;
         private readonly ValidationMode _validationMode;
         private readonly bool _enableDebugLogging;
 
         public AvroSchemaRegistrationService(
-            ISchemaRegistryClient? schemaRegistryClient,
+            ConfluentSchemaRegistry.ISchemaRegistryClient? schemaRegistryClient,
             ValidationMode validationMode,
             bool enableDebugLogging = false)
         {
@@ -115,7 +116,10 @@ namespace KsqlDsl.Serialization.Avro.Management
                     Console.WriteLine($"[DEBUG] Composite key with {keyProperties.Length} properties");
             }
 
-            return await _schemaRegistryClient!.RegisterKeySchemaAsync(topicName, keySchema);
+            // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientの標準メソッドを使用
+            var subject = $"{topicName}-key";
+            var schema = new ConfluentSchemaRegistry.Schema(keySchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            return await _schemaRegistryClient!.RegisterSchemaAsync(subject, schema);
         }
 
         private async Task<int> RegisterValueSchemaAsync(Type entityType, string topicName)
@@ -128,7 +132,10 @@ namespace KsqlDsl.Serialization.Avro.Management
                 PrettyFormat = false
             });
 
-            return await _schemaRegistryClient!.RegisterValueSchemaAsync(topicName, valueSchema);
+            // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientの標準メソッドを使用
+            var subject = $"{topicName}-value";
+            var schema = new ConfluentSchemaRegistry.Schema(valueSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            return await _schemaRegistryClient!.RegisterSchemaAsync(subject, schema);
         }
 
         private Type CreateCompositeKeyType(System.Reflection.PropertyInfo[] keyProperties)
@@ -161,7 +168,9 @@ namespace KsqlDsl.Serialization.Avro.Management
 
             try
             {
-                return await _schemaRegistryClient.CheckCompatibilityAsync(subject, schema);
+                // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientの標準メソッドを使用
+                var schemaObj = new ConfluentSchemaRegistry.Schema(schema, ConfluentSchemaRegistry.SchemaType.Avro);
+                return await _schemaRegistryClient.IsCompatibleAsync(subject, schemaObj);
             }
             catch (Exception ex)
             {

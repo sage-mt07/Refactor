@@ -1,5 +1,4 @@
-﻿using KsqlDsl.Serialization.Abstractions;
-using KsqlDsl.Serialization.Avro.Cache;
+﻿using KsqlDsl.Serialization.Avro.Cache;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -7,7 +6,7 @@ using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro.Core
 {
-    internal class SchemaRegistryClientWrapper : ISchemaRegistryClient
+    internal class SchemaRegistryClientWrapper : IDisposable
     {
         private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _client;
 
