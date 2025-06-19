@@ -1,5 +1,4 @@
 ﻿using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Core.Attributes;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Configuration;

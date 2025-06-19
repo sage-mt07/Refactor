@@ -23,7 +23,7 @@ public partial class EventSetValidation<T> : EventSetStreaming<T> where T : clas
     /// <summary>
     /// クエリ実行前バリデーション強化版
     /// </summary>
-    protected override void ValidateQueryBeforeExecution()
+    protected new virtual void ValidateQueryBeforeExecution()
     {
         // 基底クラスのバリデーション
         base.ValidateQueryBeforeExecution();

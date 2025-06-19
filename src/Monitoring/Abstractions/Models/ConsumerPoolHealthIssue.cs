@@ -1,5 +1,4 @@
-﻿using KsqlDsl.Monitoring.Abstractions;
-using System;
+﻿using System;
 
 namespace KsqlDsl.Monitoring.Abstractions.Models
 {

@@ -3,13 +3,11 @@ using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
-using KsqlDsl.Serialization.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Data;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -93,7 +91,26 @@ namespace KsqlDsl.Serialization.Avro.Cache
         {
             return $"deserializer:{typeof(T).FullName}";
         }
+        public async Task<SerializerConfiguration<object>> GetConfigurationAsync()
+        {
+            // オブジェクト型の場合は汎用的な設定を返す
+            await Task.CompletedTask;
 
+            return new SerializerConfiguration<object>
+            {
+                KeySerializer = new object(), // プレースホルダー
+                ValueSerializer = new object(), // プレースホルダー
+                KeySchemaId = 0,
+                ValueSchemaId = 0,
+                CreatedAt = DateTime.UtcNow
+            };
+        }
+        public Task<bool> ValidateAsync(object entity)
+        {
+            throw new NotSupportedException(
+                "ValidateAsync for object type is not supported. " +
+                "Use GetAvroManager<T>().ValidateRoundTripAsync() for type-specific validation.");
+        }
         public Task<SerializerPair<object>> GetSerializersAsync(CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException("Use GetAvroManager<T>() for type-specific serializers");
@@ -109,19 +126,19 @@ namespace KsqlDsl.Serialization.Avro.Cache
             throw new NotSupportedException("Use GetAvroManager<T>() for type-specific validation");
         }
 
-        public SerializationStatistics GetStatistics()
+        public CoreSerializationStatistics GetStatistics()
         {
-            var aggregated = new SerializationStatistics();
+            var aggregated = new CoreSerializationStatistics();
 
             foreach (var manager in _serializerManagers.Values)
             {
                 if (manager is IAvroSerializationManager<object> typedManager)
                 {
                     var stats = typedManager.GetStatistics();
-                    aggregated.TotalSerializations += stats.TotalSerializations;
-                    aggregated.TotalDeserializations += stats.TotalDeserializations;
-                    aggregated.CacheHits += stats.CacheHits;
-                    aggregated.CacheMisses += stats.CacheMisses;
+                    aggregated.TotalOperations += stats.TotalSerializations + stats.TotalDeserializations;
+                    aggregated.SuccessfulOperations += stats.TotalSerializations; // 簡略化
+                    aggregated.FailedOperations += stats.CacheMisses; // 簡略化
+                    aggregated.AverageLatency = stats.AverageLatency;
                 }
             }
 

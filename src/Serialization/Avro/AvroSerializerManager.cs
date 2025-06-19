@@ -11,7 +11,7 @@ using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro
 {
-    public class AvroSerializerManager: IAvroSerializationManager<T>
+    public class AvroSerializerManager
     {
         private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
         private readonly AvroSerializerCache _cache;
@@ -84,41 +84,29 @@ namespace KsqlDsl.Serialization.Avro
         {
             var keyType = KeyExtractor.DetermineKeyType(entityModel);
 
-            return _cache.GetOrCreateSerializer<T>(SerializerType.Key, schemaId, () =>
+            if (KeyExtractor.IsCompositeKey(entityModel))
             {
-                if (KeyExtractor.IsCompositeKey(entityModel))
-                {
-                    return new StringKeySerializer();
-                }
-                else
-                {
-                    return new StringKeySerializer();
-                }
-            });
+                return new StringKeySerializer();
+            }
+            else
+            {
+                return new StringKeySerializer();
+            }
         }
 
         private ISerializer<object> CreateValueSerializer<T>(int schemaId)
         {
-            return _cache.GetOrCreateSerializer<T>(SerializerType.Value, schemaId, () =>
-            {
-                return new SimpleAvroSerializer<T>(_schemaRegistryClient);
-            });
+            return new SimpleAvroSerializer<T>(_schemaRegistryClient);
         }
 
         private IDeserializer<object> CreateKeyDeserializer<T>(EntityModel entityModel, int schemaId)
         {
-            return _cache.GetOrCreateDeserializer<T>(SerializerType.Key, schemaId, () =>
-            {
-                return new StringKeyDeserializer();
-            });
+            return new StringKeyDeserializer();
         }
 
         private IDeserializer<object> CreateValueDeserializer<T>(int schemaId)
         {
-            return _cache.GetOrCreateDeserializer<T>(SerializerType.Value, schemaId, () =>
-            {
-                return new SimpleAvroDeserializer<T>(_schemaRegistryClient);
-            });
+            return new SimpleAvroDeserializer<T>(_schemaRegistryClient);
         }
     }
 
@@ -153,7 +141,7 @@ namespace KsqlDsl.Serialization.Avro
             if (data is T typedData)
             {
                 var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
-                var serializer = new AvroSerializer<T>(_client, config);
+                var serializer = new Confluent.SchemaRegistry.Serdes.AvroSerializer<T>(_client, config);
                 return serializer.SerializeAsync(typedData, context).GetAwaiter().GetResult();
             }
             throw new InvalidOperationException($"Expected type {typeof(T).Name}");
@@ -171,7 +159,7 @@ namespace KsqlDsl.Serialization.Avro
 
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
-            var deserializer = new AvroDeserializer<T>(_client);
+            var deserializer = new Confluent.SchemaRegistry.Serdes.AvroDeserializer<T>(_client);
             var result = deserializer.DeserializeAsync(data.ToArray(), isNull, context).GetAwaiter().GetResult();
             return result!;
         }

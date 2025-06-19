@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,6 +22,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
     /// </summary>
     internal class TypedKafkaConsumer<T> : IKafkaConsumer<T> where T : class
     {
+        private readonly IConsumer<object, object> _consumer;
         private readonly ConsumerInstance _consumerInstance;
         private readonly IDeserializer<object> _keyDeserializer;
         private readonly IDeserializer<object> _valueDeserializer;
@@ -35,6 +37,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
         public string TopicName => _topicName;
 
         public TypedKafkaConsumer(
+            IConsumer<object, object> consumer,
             ConsumerInstance consumerInstance,
             IDeserializer<object> keyDeserializer,
             IDeserializer<object> valueDeserializer,
@@ -43,6 +46,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
             KafkaSubscriptionOptions options,
             ILogger logger)
         {
+            _consumer = consumer ?? throw new ArgumentNullException(nameof(consumer));
             _consumerInstance = consumerInstance ?? throw new ArgumentNullException(nameof(consumerInstance));
             _keyDeserializer = keyDeserializer ?? throw new ArgumentNullException(nameof(keyDeserializer));
             _valueDeserializer = valueDeserializer ?? throw new ArgumentNullException(nameof(valueDeserializer));
@@ -54,63 +58,176 @@ namespace KsqlDsl.Messaging.Consumers.Core
             EnsureSubscribed();
         }
 
-        public async IAsyncEnumerable<KafkaMessage<T>> ConsumeAsync(CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<KafkaMessage<T>> ConsumeAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            EnsureSubscribed();
-
             while (!cancellationToken.IsCancellationRequested)
             {
-                ConsumeResult<object, object>? consumeResult = null;
-                var stopwatch = Stopwatch.StartNew();
+                KafkaMessage<T>? kafkaMessage = null;
 
                 try
                 {
-                    // 既存ConsumerPoolからの効率的な消費
-                    var rawConsumer = _consumerInstance.PooledConsumer.Consumer;
-                    consumeResult = rawConsumer.Consume(TimeSpan.FromSeconds(1));
-
-                    if (consumeResult == null)
-                        continue;
-
-                    if (consumeResult.IsPartitionEOF)
-                        continue;
-
-                    stopwatch.Stop();
-
-                    var message = await DeserializeMessageAsync(consumeResult);
-                    UpdateConsumeStats(success: true, stopwatch.Elapsed);
-
-                    // 既存KafkaMetricsとの統合
-                    KafkaMetrics.RecordMessageReceived(_topicName, typeof(T).Name, stopwatch.Elapsed);
-
-                    yield return message;
-                }
-                catch (ConsumeException ex)
-                {
-                    stopwatch.Stop();
-                    UpdateConsumeStats(success: false, stopwatch.Elapsed);
-
-                    _logger.LogError(ex, "Consume error: {EntityType} -> {Topic}", typeof(T).Name, _topicName);
-
-                    if (ex.Error.IsFatal)
-                        throw;
+                    kafkaMessage = await ConsumeMessageAsync(cancellationToken);
                 }
                 catch (OperationCanceledException)
                 {
                     yield break;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!IsTerminalException(ex))
                 {
-                    stopwatch.Stop();
-                    UpdateConsumeStats(success: false, stopwatch.Elapsed);
-
-                    _logger.LogError(ex, "Unexpected consume error: {EntityType} -> {Topic}",
-                        typeof(T).Name, _topicName);
-                    throw;
+                    _logger?.LogWarning(ex, "Non-terminal error consuming message for {EntityType}", typeof(T).Name);
+                    await Task.Delay(100, cancellationToken);
+                    continue;
                 }
+
+                if (kafkaMessage != null)
+                {
+                    yield return kafkaMessage; // KafkaMessage<T>を返す
+                }
+
+                await Task.Delay(10, cancellationToken);
             }
         }
+        private async Task<KafkaMessage<T>?> ConsumeMessageAsync(CancellationToken cancellationToken = default)
+        {
+            return await Task.Run(() =>
+            {
+                try
+                {
+                    var consumeResult = _consumer.Consume(cancellationToken);
 
+                    if (consumeResult != null && !consumeResult.IsPartitionEOF)
+                    {
+                        return CreateKafkaMessage(consumeResult);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Error consuming message from topic {TopicName}", _topicName);
+                    throw;
+                }
+
+                return null;
+            }, cancellationToken);
+        }
+        private KafkaMessage<T> CreateKafkaMessage(ConsumeResult<object, object> consumeResult)
+        {
+            // Value のデシリアライゼーション
+            var valueBytes = consumeResult.Message.Value as byte[];
+            var message = _valueDeserializer.Deserialize(
+                valueBytes ?? Array.Empty<byte>(),
+                valueBytes == null,
+                new SerializationContext(MessageComponentType.Value, _topicName)) as T;
+
+            if (message == null)
+                throw new InvalidOperationException($"Failed to deserialize message to type {typeof(T).Name}");
+
+            // Key のデシリアライゼーション
+            var keyBytes = consumeResult.Message.Key as byte[];
+            var key = _keyDeserializer.Deserialize(
+                keyBytes ?? Array.Empty<byte>(),
+                keyBytes == null,
+                new SerializationContext(MessageComponentType.Key, _topicName));
+
+            return new KafkaMessage<T>
+            {
+                Value = message,
+                Key = key,
+                Topic = consumeResult.Topic,
+                Partition = consumeResult.Partition.Value,
+                Offset = consumeResult.Offset.Value,
+                Timestamp = consumeResult.Message.Timestamp.UtcDateTime,
+                Headers = consumeResult.Message.Headers,
+                Context = new KafkaMessageContext
+                {
+                    MessageId = Guid.NewGuid().ToString(),
+                    CorrelationId = ExtractCorrelationId(consumeResult.Message.Headers),
+                    Tags = new Dictionary<string, object>
+                    {
+                        ["topic"] = consumeResult.Topic,
+                        ["partition"] = consumeResult.Partition.Value,
+                        ["offset"] = consumeResult.Offset.Value
+                    }
+                }
+            };
+        }
+
+        private string? ExtractCorrelationId(Headers? headers)
+        {
+            if (headers == null) return null;
+
+            try
+            {
+                var correlationIdHeader = headers.FirstOrDefault(h => h.Key == "correlationId");
+                if (correlationIdHeader != null && correlationIdHeader.GetValueBytes() != null)
+                {
+                    return System.Text.Encoding.UTF8.GetString(correlationIdHeader.GetValueBytes());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to extract correlation ID from headers");
+            }
+
+            return null;
+        }
+
+        // 内部実装を分離
+        private async IAsyncEnumerable<T> ConsumeInternalAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                T? message = null;
+
+                try
+                {
+                    // メッセージ消費処理
+                    var kafkaMessage = await ConsumeMessageAsync(cancellationToken);
+                    if (kafkaMessage != null)
+                    {
+                        message = kafkaMessage.Value;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // キャンセレーション時は正常終了
+                    yield break;
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Error consuming message for {EntityType}", typeof(T).Name);
+
+                    // 重大なエラーかどうかを判定
+                    if (IsTerminalException(ex))
+                    {
+                        throw;
+                    }
+
+                    // 軽微なエラーの場合は継続
+                    await Task.Delay(100, cancellationToken);
+                    continue;
+                }
+
+                if (message != null)
+                {
+                    yield return message;
+                }
+
+                // 短時間待機（CPU使用率を抑制）
+                await Task.Delay(10, cancellationToken);
+            }
+        }
+        private bool IsTerminalException(Exception ex)
+        {
+            return ex is ArgumentException
+                || ex is InvalidOperationException
+                || ex is UnauthorizedAccessException
+                || ex is OutOfMemoryException
+                || ex is ObjectDisposedException;
+        }
         public async Task<KafkaBatch<T>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default)
         {
             if (options == null)

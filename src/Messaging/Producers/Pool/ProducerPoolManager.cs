@@ -186,7 +186,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
                     status.HealthLevel = PoolHealthLevel.Critical;
                     status.Issues.Add(new PoolHealthIssue
                     {
-                        Type =PoolHealthIssueType.HighFailureRate,
+                        Type = PoolHealthIssueType.HighFailureRate,
                         Description = $"{unhealthyPools} pools have high failure rates",
                         Severity = PoolIssueSeverity.Critical
                     });
@@ -296,7 +296,7 @@ namespace KsqlDsl.Messaging.Producers.Pool
             var config = new ProducerConfig
             {
                 BootstrapServers = "localhost:9092",
-                Acks =Confluent.Kafka.Acks.All,
+                Acks = Confluent.Kafka.Acks.All,
                 EnableIdempotence = true,
                 MaxInFlight = 1,
                 CompressionType = Confluent.Kafka.CompressionType.Snappy,

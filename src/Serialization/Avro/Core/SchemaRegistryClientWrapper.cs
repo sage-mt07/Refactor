@@ -1,6 +1,5 @@
 ﻿using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Cache;
-using KsqlDsl.Serialization.Avro.Core;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;

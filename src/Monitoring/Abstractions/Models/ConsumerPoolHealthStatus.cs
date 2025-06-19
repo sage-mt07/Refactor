@@ -1,5 +1,4 @@
 ﻿using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Monitoring.Abstractions;
 using System;
 using System.Collections.Generic;
 

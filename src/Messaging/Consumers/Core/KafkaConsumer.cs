@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,10 +17,12 @@ namespace KsqlDsl.Messaging.Consumers.Core
 {
     public class KafkaConsumer<T> : IKafkaConsumer<T> where T : class
     {
+        private readonly IConsumer<object, object> _consumer;
         private readonly IConsumer<object, object> _rawConsumer;
         private readonly IDeserializer<object> _keyDeserializer;
         private readonly IDeserializer<object> _valueDeserializer;
         private readonly EntityModel _entityModel;
+        private readonly string _topicName;
         private readonly SubscriptionOptions _options;
         private readonly IConsumerMetricsCollector _metricsCollector;
         private readonly ILogger _logger;
@@ -30,78 +33,129 @@ namespace KsqlDsl.Messaging.Consumers.Core
         public string TopicName { get; }
 
         public KafkaConsumer(
-            IConsumer<object, object> rawConsumer,
+            IConsumer<object, object> consumer,
             IDeserializer<object> keyDeserializer,
             IDeserializer<object> valueDeserializer,
             string topicName,
             EntityModel entityModel,
             SubscriptionOptions options,
-            IConsumerMetricsCollector metricsCollector,
-            ILogger logger)
+            IConsumerMetricsCollector? metricsCollector = null,
+            ILogger? logger = null)
         {
-            _rawConsumer = rawConsumer ?? throw new ArgumentNullException(nameof(rawConsumer));
+            _consumer = consumer ?? throw new ArgumentNullException(nameof(consumer));
             _keyDeserializer = keyDeserializer ?? throw new ArgumentNullException(nameof(keyDeserializer));
             _valueDeserializer = valueDeserializer ?? throw new ArgumentNullException(nameof(valueDeserializer));
-            TopicName = topicName ?? throw new ArgumentNullException(nameof(topicName));
+            _topicName = topicName ?? throw new ArgumentNullException(nameof(topicName));
             _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
             _options = options ?? throw new ArgumentNullException(nameof(options));
-            _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _metricsCollector = metricsCollector;
+            _logger = logger;
 
-            EnsureSubscribed();
+            // トピックにサブスクライブ
+            _consumer.Subscribe(_topicName);
         }
 
-        public async IAsyncEnumerable<KafkaMessage<T>> ConsumeAsync(CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<KafkaMessage<T>> ConsumeAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            EnsureSubscribed();
-
             while (!cancellationToken.IsCancellationRequested)
             {
-                ConsumeResult<object, object>? consumeResult = null;
-                var stopwatch = Stopwatch.StartNew();
-
+                KafkaMessage<T>? kafkaMessage = null;
+                var processingStartTime = DateTime.UtcNow; // 処理開始時刻を記録
                 try
                 {
-                    consumeResult = _rawConsumer.Consume(TimeSpan.FromSeconds(1));
+                    // Kafkaからメッセージを消費
+                    var consumeResult = _consumer.Consume(cancellationToken);
 
-                    if (consumeResult == null)
-                        continue;
+                    if (consumeResult != null && !consumeResult.IsPartitionEOF)
+                    {
+                        // デシリアライゼーション
+                        var message = _valueDeserializer.Deserialize(
+                              (consumeResult.Message.Value as byte[]) ?? Array.Empty<byte>(),
+                            false,
+                            new SerializationContext(MessageComponentType.Value, _topicName)) as T;
 
-                    if (consumeResult.IsPartitionEOF)
-                        continue;
-
-                    stopwatch.Stop();
-
-                    var message = await DeserializeMessageAsync(consumeResult);
-                    _metricsCollector.RecordConsume(success: true, stopwatch.Elapsed, consumeResult.Message.Value?.ToString()?.Length ?? 0);
-                    UpdateConsumeStats(success: true, stopwatch.Elapsed);
-
-                    yield return message;
-                }
-                catch (ConsumeException ex)
-                {
-                    stopwatch.Stop();
-                    _metricsCollector.RecordConsume(success: false, stopwatch.Elapsed, 0);
-                    UpdateConsumeStats(success: false, stopwatch.Elapsed);
-
-                    if (ex.Error.IsFatal)
-                        throw;
+                        if (message != null)
+                        {
+                            // KafkaMessage<T>オブジェクトを作成
+                            kafkaMessage = new KafkaMessage<T>
+                            {
+                                Value = message,
+                                Key = _keyDeserializer.Deserialize(
+                                   (consumeResult.Message.Key as byte[]) ?? Array.Empty<byte>(), // byte[]に変換
+                                    consumeResult.Message.Key == null,
+                                    new SerializationContext(MessageComponentType.Key, _topicName)),
+                                Topic = consumeResult.Topic,
+                                Partition = consumeResult.Partition.Value,
+                                Offset = consumeResult.Offset.Value,
+                                Timestamp = consumeResult.Message.Timestamp.UtcDateTime,
+                                Headers = consumeResult.Message.Headers,
+                                Context = new KafkaMessageContext
+                                {
+                                    MessageId = Guid.NewGuid().ToString(),
+                                    CorrelationId = ExtractCorrelationId(consumeResult.Message.Headers),
+                                    Tags = new Dictionary<string, object>
+                                    {
+                                        ["topic"] = consumeResult.Topic,
+                                        ["partition"] = consumeResult.Partition.Value,
+                                        ["offset"] = consumeResult.Offset.Value
+                                    }
+                                }
+                            };
+                        }
+                    }
                 }
                 catch (OperationCanceledException)
                 {
+                    // キャンセレーション要求時は正常終了
                     yield break;
                 }
                 catch (Exception ex)
                 {
-                    stopwatch.Stop();
-                    _metricsCollector.RecordConsume(success: false, stopwatch.Elapsed, 0);
-                    UpdateConsumeStats(success: false, stopwatch.Elapsed);
-                    _logger.LogError(ex, "Unexpected consume error: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
-                    throw;
+                    _logger?.LogError(ex, "Error consuming message from topic {TopicName}", _topicName);
+                    var processingTime = DateTime.UtcNow - processingStartTime;
+                    // エラー統計記録
+                    _metricsCollector?.RecordConsume(false, processingTime, 1);
+
+                    // エラー時の動作は設定に依存
+                    if (_options.StopOnError)
+                    {
+                        throw;
+                    }
+                    continue;
                 }
+
+                if (kafkaMessage != null)
+                {
+                    // 成功統計記録
+                    var processingTime = DateTime.UtcNow - processingStartTime;
+                    _metricsCollector?.RecordConsume(true, processingTime, 1);
+
+                    yield return kafkaMessage;
+                }
+
+                // 短時間の待機（CPU使用率を抑制）
+                await Task.Delay(1, cancellationToken);
             }
         }
+        private string? ExtractCorrelationId(Headers? headers)
+        {
+            if (headers == null) return null;
 
+            try
+            {
+                var correlationIdHeader = headers.FirstOrDefault(h => h.Key == "correlationId");
+                if (correlationIdHeader != null && correlationIdHeader.GetValueBytes() != null)
+                {
+                    return System.Text.Encoding.UTF8.GetString(correlationIdHeader.GetValueBytes());
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to extract correlation ID from headers");
+            }
+
+            return null;
+        }
         public async Task<KafkaBatch<T>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default)
         {
             if (options == null)

@@ -1,14 +1,12 @@
 ﻿using Confluent.Kafka;
 using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Core.Abstractions;
-//using KsqlDsl.Core.Attributes;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Configuration;
 using KsqlDsl.Messaging.Consumers.Core;
 using KsqlDsl.Messaging.Consumers.Exceptions;
 using KsqlDsl.Messaging.Consumers.Pool;
 using KsqlDsl.Messaging.Consumers.Subscription;
-using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Monitoring.Abstractions;
 using KsqlDsl.Monitoring.Abstractions.Models;
 using KsqlDsl.Monitoring.Tracing;
@@ -20,6 +18,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -30,7 +29,7 @@ namespace KsqlDsl.Messaging.Consumers;
 /// 設計理由：複数購読の効率管理、オフセット管理の統合
 /// 既存EnhancedAvroSerializerManagerとの統合により型安全なデシリアライゼーション実現
 /// </summary>
-public class KafkaConsumerManager : IDisposable
+public class KafkaConsumerManager : IDisposable, IConsumerMetricsCollector
 {
     private readonly EnhancedAvroSerializerManager _serializerManager;
     private readonly ConsumerPool _consumerPool;
@@ -47,7 +46,7 @@ public class KafkaConsumerManager : IDisposable
         EnhancedAvroSerializerManager serializerManager,
         ConsumerPool consumerPool,
         IOptions<KafkaConsumerConfig> config,
-        ILogger<KafkaConsumerManager> logger)
+        ILogger<KafkaConsumerManager> logger) : base()
     {
         _serializerManager = serializerManager ?? throw new ArgumentNullException(nameof(serializerManager));
         _consumerPool = consumerPool ?? throw new ArgumentNullException(nameof(consumerPool));
@@ -80,21 +79,34 @@ public class KafkaConsumerManager : IDisposable
             var consumerKey = new ConsumerKey(entityType, topicName, options.GroupId ?? _config.DefaultGroupId);
 
             // プールからConsumer取得
-            var rawConsumer = _consumerPool.RentConsumer(consumerKey);
+            // プールからConsumer取得
+            var consumerInstance = _consumerPool.RentConsumer(consumerKey);
+            var rawConsumer = (IConsumer<object, object>)consumerInstance;// ConsumerInstanceから実際のIConsumerを取得
 
             // Avroデシリアライザー取得（既存実装活用）
             var (keyDeserializer, valueDeserializer) = await _serializerManager.CreateDeserializersAsync<T>(entityModel);
 
             // 型安全Consumerラッパー作成
             var typedConsumer = new KafkaConsumer<T>(
-                rawConsumer,
-                keyDeserializer,
-                valueDeserializer,
-                topicName,
-                entityModel,
-                options,
-                this,
-                _logger);
+                rawConsumer,                    // IConsumer<object, object>
+                keyDeserializer,               // IDeserializer<object>
+                valueDeserializer,             // IDeserializer<object>
+                topicName,                     // string
+                entityModel,                   // EntityModel
+                 new SubscriptionOptions
+                 {
+                     GroupId = options.GroupId,
+                     AutoCommit = options.AutoCommit,
+                     AutoOffsetReset = (Confluent.Kafka.AutoOffsetReset)options.AutoOffsetReset,
+                     EnablePartitionEof = options.EnablePartitionEof,
+                     SessionTimeout = options.SessionTimeout,
+                     HeartbeatInterval = options.HeartbeatInterval,
+                     StopOnError = options.StopOnError,
+                     MaxPollRecords = options.MaxPollRecords,
+                     MaxPollInterval = options.MaxPollInterval
+                 },                       // KafkaSubscriptionOptions
+                this,                          // KafkaConsumerManager
+                _logger);                      // ILogger
 
             stopwatch.Stop();
 
@@ -119,7 +131,82 @@ public class KafkaConsumerManager : IDisposable
             throw new KafkaConsumerManagerException($"Failed to create consumer for {entityType.Name}", ex);
         }
     }
+    public void RecordMessageProcessed(string topicName, TimeSpan processingTime)
+    {
+        lock (_performanceStats)
+        {
+            _performanceStats.TotalMessages++;
+            _performanceStats.ProcessedMessages++;
+            _performanceStats.LastUpdated = DateTime.UtcNow;
+        }
+    }
+    public void RecordConsume(bool success, TimeSpan duration, int messageCount)
+    {
+        lock (_performanceStats)
+        {
+            if (success)
+            {
+                _performanceStats.ProcessedMessages += messageCount;
+                _performanceStats.TotalMessages += messageCount;
+            }
+            else
+            {
+                _performanceStats.FailedMessages += messageCount;
+                _performanceStats.TotalMessages += messageCount;
+            }
 
+            // 平均処理時間の更新
+            if (_performanceStats.TotalMessages > 0)
+            {
+                var totalTime = _performanceStats.AverageProcessingTime.Ticks * (_performanceStats.TotalMessages - messageCount) + duration.Ticks;
+                _performanceStats.AverageProcessingTime = TimeSpan.FromTicks(totalTime / _performanceStats.TotalMessages);
+            }
+
+            _performanceStats.LastUpdated = DateTime.UtcNow;
+        }
+
+        _logger?.LogDebug("Consumer operation recorded: Success={Success}, Duration={Duration}ms, Messages={MessageCount}",
+            success, duration.TotalMilliseconds, messageCount);
+    }
+    public void RecordBatch(int messageCount, TimeSpan totalProcessingTime)
+    {
+        lock (_performanceStats)
+        {
+            _performanceStats.TotalBatches++;
+            _performanceStats.TotalMessages += messageCount;
+            _performanceStats.ProcessedMessages += messageCount;
+
+            // バッチ処理時間の記録
+            if (_performanceStats.TotalBatches > 0)
+            {
+                var averageBatchTime = TimeSpan.FromTicks(
+                    (_performanceStats.AverageProcessingTime.Ticks * (_performanceStats.TotalBatches - 1) + totalProcessingTime.Ticks) / _performanceStats.TotalBatches);
+                _performanceStats.AverageProcessingTime = averageBatchTime;
+            }
+
+            // スループット計算
+            var elapsedSinceLastCalculation = DateTime.UtcNow - _performanceStats.LastThroughputCalculation;
+            if (elapsedSinceLastCalculation.TotalSeconds >= 1.0)
+            {
+                _performanceStats.ThroughputPerSecond = messageCount / totalProcessingTime.TotalSeconds;
+                _performanceStats.LastThroughputCalculation = DateTime.UtcNow;
+            }
+
+            _performanceStats.LastUpdated = DateTime.UtcNow;
+        }
+
+        _logger?.LogDebug("Consumer batch recorded: Messages={MessageCount}, Duration={Duration}ms, Throughput={Throughput}/sec",
+            messageCount, totalProcessingTime.TotalMilliseconds, _performanceStats.ThroughputPerSecond);
+    }
+    public void RecordMessageFailed(string topicName, Exception exception)
+    {
+        lock (_performanceStats)
+        {
+            _performanceStats.FailedMessages++;
+            _performanceStats.LastUpdated = DateTime.UtcNow;
+        }
+        _logger?.LogWarning(exception, "Consumer message processing failed: {TopicName}", topicName);
+    }
     /// <summary>
     /// 購読開始
     /// 設計理由：型安全な購読管理、ハンドラーベースの処理
@@ -148,7 +235,7 @@ public class KafkaConsumerManager : IDisposable
         {
             Id = subscriptionId,
             EntityType = entityType,
-            Consumer = consumer,
+            Consumer = consumer as IKafkaConsumer<object>,
             Handler = async (obj, ctx) => await handler((T)obj, ctx),
             Options = options,
             StartedAt = DateTime.UtcNow,
@@ -187,9 +274,9 @@ public class KafkaConsumerManager : IDisposable
     /// バッチ消費
     /// 設計理由：高スループット処理、効率的なバッチ処理API
     /// </summary>
-    public async IAsyncEnumerable<KafkaBatch<T>> ConsumeBatchesAsync<T>(
-        KafkaBatchOptions options,
-        CancellationToken cancellationToken = default) where T : class
+    public async IAsyncEnumerable<List<T>> ConsumeBatchesAsync<T>(
+    KafkaBatchOptions options,
+    [EnumeratorCancellation] CancellationToken cancellationToken = default) where T : class
     {
         if (options == null)
             throw new ArgumentNullException(nameof(options));
@@ -206,54 +293,71 @@ public class KafkaConsumerManager : IDisposable
             EnablePartitionEof = true
         });
 
+        // try-catchの外でyield returnを使用
+        IAsyncEnumerable<List<T>> batchStream;
         try
         {
-            var batchCount = 0;
-            var totalMessages = 0;
-
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                var batch = await consumer.ConsumeBatchAsync(options, cancellationToken);
-
-                if (batch.Messages.Count > 0)
-                {
-                    batchCount++;
-                    totalMessages += batch.Messages.Count;
-
-                    // バッチメトリクス記録
-                    RecordBatchConsume<T>(batch.Messages.Count, batch.ProcessingTime);
-
-                    yield return batch;
-                }
-                else if (options.EnableEmptyBatches)
-                {
-                    // 空バッチも返却（タイムアウト検出用）
-                    yield return batch;
-                }
-
-                // 定期的なメトリクス更新
-                if (batchCount % 10 == 0)
-                {
-                    activity?.SetTag("kafka.batches.processed", batchCount)
-                            ?.SetTag("kafka.messages.processed", totalMessages);
-                }
-            }
-
-            activity?.SetStatus(ActivityStatusCode.Ok);
+            batchStream = ConsumeBatchesInternalAsync(consumer, options, activity, cancellationToken);
         }
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-
             _logger.LogError(ex, "Failed to consume batches for {EntityType}", typeof(T).Name);
+            consumer.Dispose();
             throw new KafkaConsumerManagerException($"Failed to consume {typeof(T).Name} batches", ex);
+        }
+
+        try
+        {
+            await foreach (var batch in batchStream.WithCancellation(cancellationToken))
+            {
+                yield return batch;
+            }
+            activity?.SetStatus(ActivityStatusCode.Ok);
         }
         finally
         {
             consumer.Dispose();
         }
     }
+    private async IAsyncEnumerable<List<T>> ConsumeBatchesInternalAsync<T>(
+    IKafkaConsumer<T> consumer,
+    KafkaBatchOptions options,
+    Activity? activity,
+    [EnumeratorCancellation] CancellationToken cancellationToken) where T : class
+    {
+        var batchCount = 0;
+        var totalMessages = 0;
 
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var batch = await consumer.ConsumeBatchAsync(options, cancellationToken);
+
+            if (batch.Messages.Count > 0)
+            {
+                batchCount++;
+                totalMessages += batch.Messages.Count;
+
+                // バッチメトリクス記録
+                RecordBatchConsume<T>(batch.Messages.Count, batch.ProcessingTime);
+
+                var messages = batch.Messages.Select(kafkaMsg => kafkaMsg.Value).ToList();
+                yield return messages;
+            }
+            else if (options.EnableEmptyBatches)
+            {
+                // 空バッチも返却（タイムアウト検出用）
+                yield return new List<T>(); // 空のList<T>を返す
+            }
+
+            // 定期的なメトリクス更新
+            if (batchCount % 10 == 0)
+            {
+                activity?.SetTag("kafka.batches.processed", batchCount)
+                        ?.SetTag("kafka.messages.processed", totalMessages);
+            }
+        }
+    }
     /// <summary>
     /// オフセットコミット
     /// 設計理由：明示的なオフセット管理、トランザクション境界制御
@@ -418,7 +522,24 @@ public class KafkaConsumerManager : IDisposable
     /// アクティブConsumer数取得
     /// </summary>
     public int GetActiveConsumerCount() => _consumerPool.GetActiveConsumerCount();
+    //public void RecordMessageProcessed(string topicName, TimeSpan processingTime)
+    //{
+    //    lock (_performanceStats)
+    //    {
+    //        _performanceStats.TotalMessages++;
+    //        _performanceStats.ProcessedMessages++;
+    //        // 平均処理時間の更新など...
+    //    }
+    //}
 
+    //public void RecordMessageFailed(string topicName, Exception exception)
+    //{
+    //    lock (_performanceStats)
+    //    {
+    //        _performanceStats.FailedMessages++;
+    //    }
+    //    _logger?.LogWarning(exception, "Consumer message processing failed: {TopicName}", topicName);
+    //}
     // プライベートヘルパーメソッド
 
     private EntityModel GetEntityModel<T>() where T : class

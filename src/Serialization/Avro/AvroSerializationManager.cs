@@ -2,11 +2,9 @@
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Management;
-using KsqlDsl.Serialization.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;
-using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
 using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
@@ -22,7 +20,7 @@ namespace KsqlDsl.Serialization.Avro
         private bool _disposed = false;
 
         public Type EntityType => typeof(T);
-        public SerializationFormat Format => SerializationFormat.Avro;
+
 
         public AvroSerializationManager(
             ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
@@ -131,5 +129,5 @@ namespace KsqlDsl.Serialization.Avro
         }
     }
 
- 
+
 }

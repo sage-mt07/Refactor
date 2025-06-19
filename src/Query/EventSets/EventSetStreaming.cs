@@ -71,7 +71,7 @@ namespace KsqlDsl.Query.EventSets
         /// <summary>
         /// クエリ実行前のバリデーション
         /// </summary>
-        private void ValidateQueryBeforeExecution()
+        internal void ValidateQueryBeforeExecution()
         {
             if (_entityModel.TopicAttribute == null)
             {

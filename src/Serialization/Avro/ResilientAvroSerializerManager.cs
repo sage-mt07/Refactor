@@ -1,9 +1,9 @@
 ﻿using Confluent.SchemaRegistry;
 using KsqlDsl.Configuration.Options;
+using KsqlDsl.Monitoring.Metrics;
 using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
-using KsqlDsl.Monitoring.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -44,8 +44,8 @@ namespace KsqlDsl.Serialization.Avro
                 {
                     using var operation = AvroActivitySource.StartCacheOperation("register", subject);
                     var stopwatch = Stopwatch.StartNew();
-
-                    var schemaId = await _schemaRegistryClient.RegisterSchemaAsync(subject, schema);
+                    var schemaObj = new Schema(schema, SchemaType.Avro);
+                    var schemaId = await _schemaRegistryClient.RegisterSchemaAsync(subject, schemaObj);
                     stopwatch.Stop();
 
                     _logger.LogInformation(

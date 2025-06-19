@@ -132,7 +132,7 @@ namespace KsqlDsl.Messaging.Producers
             if (messageList.Count == 0)
                 return new KafkaBatchDeliveryResult
                 {
-                    
+
                     TotalMessages = 0,
                     SuccessfulCount = 0,
                     FailedCount = 0,

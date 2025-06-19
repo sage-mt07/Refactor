@@ -1,5 +1,4 @@
-﻿using KsqlDsl.Monitoring.Abstractions;
-using KsqlDsl.Monitoring.Metrics;
+﻿using KsqlDsl.Monitoring.Metrics;
 using System;
 using System.Collections.Generic;
 
