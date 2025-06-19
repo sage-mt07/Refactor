@@ -61,19 +61,21 @@ namespace KsqlDsl.Serialization.Avro.Core
                 ValueSchemaId = valueSchemaId
             };
         }
+
         public IAvroSerializer<T> CreateSerializer<T>() where T : class
         {
             _logger?.LogDebug("Creating Avro serializer for type {Type}", typeof(T).Name);
 
-            // TODO: 実際のAvroシリアライザー作成実装
-            return new AvroSerializer<T>(_loggerFactory);
+            // ✅ 修正: カスタムのAvroSerializerクラスを使用
+            return new Core.AvroSerializer<T>(_loggerFactory);
         }
+
         public IAvroDeserializer<T> CreateDeserializer<T>() where T : class
         {
             _logger?.LogDebug("Creating Avro deserializer for type {Type}", typeof(T).Name);
 
-            // TODO: 実際のAvroデシリアライザー作成実装
-            return new AvroDeserializer<T>(_loggerFactory);
+            // ✅ 修正: カスタムのAvroDeserializerクラスを使用
+            return new Core.AvroDeserializer<T>(_loggerFactory);
         }
 
         private async Task<int> RegisterKeySchemaAsync<T>(EntityModel entityModel, CancellationToken cancellationToken) where T : class
@@ -84,7 +86,9 @@ namespace KsqlDsl.Serialization.Avro.Core
 
             var subject = $"{topicName}-key";
             var schema = new ConfluentSchemaRegistry.Schema(keySchema, ConfluentSchemaRegistry.SchemaType.Avro);
-            return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema, cancellationToken);
+
+            // ✅ 修正: CancellationTokenを削除し、normalizeパラメータのみ使用
+            return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema, normalize: false);
         }
 
         private async Task<int> RegisterValueSchemaAsync<T>(EntityModel entityModel, CancellationToken cancellationToken) where T : class
@@ -94,7 +98,9 @@ namespace KsqlDsl.Serialization.Avro.Core
 
             var subject = $"{topicName}-value";
             var schema = new ConfluentSchemaRegistry.Schema(valueSchema, ConfluentSchemaRegistry.SchemaType.Avro);
-            return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema, cancellationToken);
+
+            // ✅ 修正: CancellationTokenを削除し、normalizeパラメータのみ使用
+            return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema, normalize: false);
         }
 
         private ISerializer<object> CreateKeySerializer<T>(EntityModel entityModel, int schemaId) where T : class
@@ -274,9 +280,15 @@ namespace KsqlDsl.Serialization.Avro.Core
 
         public byte[] Serialize(object data, SerializationContext context)
         {
-            var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
-            var serializer = new AvroSerializer<System.Collections.Generic.Dictionary<string, object>>(_client, config);
-            return serializer.SerializeAsync((System.Collections.Generic.Dictionary<string, object>)data, context).GetAwaiter().GetResult();
+            if (data is System.Collections.Generic.Dictionary<string, object> dict)
+            {
+                // ✅ 修正: Confluent.SchemaRegistry.Serdes.AvroSerializerを明示的に指定
+                var serializer = new Confluent.SchemaRegistry.Serdes.AvroSerializer<System.Collections.Generic.Dictionary<string, object>>(_client);
+
+                // ✅ 修正: SerializeAsyncを呼び出してGetAwaiter().GetResult()で同期実行
+                return serializer.SerializeAsync(dict, context).GetAwaiter().GetResult();
+            }
+            throw new InvalidOperationException("Expected Dictionary<string, object> for composite key");
         }
     }
 
@@ -292,7 +304,9 @@ namespace KsqlDsl.Serialization.Avro.Core
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
             if (isNull) return new System.Collections.Generic.Dictionary<string, object>();
-            var deserializer = new AvroDeserializer<System.Collections.Generic.Dictionary<string, object>>(_client);
+
+            // ✅ 修正: Confluent.SchemaRegistry.Serdes.AvroDeserializerを明示的に指定
+            var deserializer = new Confluent.SchemaRegistry.Serdes.AvroDeserializer<System.Collections.Generic.Dictionary<string, object>>(_client);
             var result = deserializer.DeserializeAsync(data.ToArray(), isNull, context).GetAwaiter().GetResult();
             return result!;
         }
@@ -311,8 +325,8 @@ namespace KsqlDsl.Serialization.Avro.Core
         {
             if (data is T typedData)
             {
-                var config = new AvroSerializerConfig { AutoRegisterSchemas = false };
-                var serializer = new AvroSerializer<T>(_client, config);
+                // ✅ 修正: Confluent.SchemaRegistry.Serdes.AvroSerializerを明示的に指定
+                var serializer = new Confluent.SchemaRegistry.Serdes.AvroSerializer<T>(_client);
                 return serializer.SerializeAsync(typedData, context).GetAwaiter().GetResult();
             }
             throw new InvalidOperationException($"Expected type {typeof(T).Name}");
@@ -330,7 +344,8 @@ namespace KsqlDsl.Serialization.Avro.Core
 
         public object Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context)
         {
-            var deserializer = new AvroDeserializer<T>(_client);
+            // ✅ 修正: Confluent.SchemaRegistry.Serdes.AvroDeserializerを明示的に指定
+            var deserializer = new Confluent.SchemaRegistry.Serdes.AvroDeserializer<T>(_client);
             var result = deserializer.DeserializeAsync(data.ToArray(), isNull, context).GetAwaiter().GetResult();
             return result!;
         }
