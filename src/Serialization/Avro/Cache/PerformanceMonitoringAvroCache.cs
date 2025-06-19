@@ -1,10 +1,12 @@
 ﻿using KsqlDsl.Configuration.Options;
-using KsqlDsl.Monitoring.Abstractions.Models;
-using KsqlDsl.Monitoring.Diagnostics;
 using KsqlDsl.Monitoring.Metrics;
-using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Serialization.Avro.Logging;
+using KsqlDsl.Serialization.Avro.Metrics;
+using KsqlDsl.Serialization.Avro.Performance;
+using KsqlDsl.Serialization.Avro.Tracing;
+using KsqlDsl.Serialization.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace KsqlDsl.Monitoring.Metrics
+namespace KsqlDsl.Serialization.Avro.Performance
 {
     public class SlowOperationRecord
     {
@@ -10,5 +10,4 @@ namespace KsqlDsl.Monitoring.Metrics
         public TimeSpan Duration { get; set; }
         public DateTime Timestamp { get; set; }
     }
-
 }

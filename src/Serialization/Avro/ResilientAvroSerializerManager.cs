@@ -4,6 +4,7 @@ using KsqlDsl.Monitoring.Metrics;
 using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Serialization.Avro.Metrics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
