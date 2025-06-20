@@ -1,4 +1,5 @@
 ﻿using KsqlDsl.Configuration.Options;
+using KsqlDsl.Monitoring.Performance;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Logging;
@@ -208,76 +209,27 @@ namespace KsqlDsl.Serialization.Avro.Cache
             return statuses;
         }
 
-        private long GetKeySerializerHits(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:KeySerializer:Hits", out var hits)
-                ? Convert.ToInt64(hits) : 0;
-        }
-
-        private long GetKeySerializerMisses(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:KeySerializer:Misses", out var misses)
-                ? Convert.ToInt64(misses) : 0;
-        }
-
-        private long GetValueSerializerHits(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:ValueSerializer:Hits", out var hits)
-                ? Convert.ToInt64(hits) : 0;
-        }
-
-        private long GetValueSerializerMisses(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:ValueSerializer:Misses", out var misses)
-                ? Convert.ToInt64(misses) : 0;
-        }
-
-        private long GetKeyDeserializerHits(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:KeyDeserializer:Hits", out var hits)
-                ? Convert.ToInt64(hits) : 0;
-        }
-
-        private long GetKeyDeserializerMisses(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:KeyDeserializer:Misses", out var misses)
-                ? Convert.ToInt64(misses) : 0;
-        }
-
-        private long GetValueDeserializerHits(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:ValueDeserializer:Hits", out var hits)
-                ? Convert.ToInt64(hits) : 0;
-        }
-
-        private long GetValueDeserializerMisses(string entityTypeName)
-        {
-            return _entityMetrics.TryGetValue($"{entityTypeName}:ValueDeserializer:Misses", out var misses)
-                ? Convert.ToInt64(misses) : 0;
-        }
-
         public ExtendedCacheStatistics GetExtendedStatistics()
         {
-            var baseStats = GetGlobalStatistics();
-            var entityStats = GetAllEntityStatuses();
+            var baseStats = GetGlobalStatistics(); // CacheStatistics型
 
             return new ExtendedCacheStatistics
             {
-                BaseStatistics = baseStats,
-                EntityStatistics = entityStats,
+                BaseStatistics = baseStats,  // CacheStatistics → CacheStatistics
+                EntityStatistics = GetAllEntityStatuses(),
                 PerformanceMetrics = GetPerformanceMetrics(),
                 SlowOperations = GetRecentSlowOperations(),
                 TotalOperations = _totalOperations,
                 SlowOperationsCount = _slowOperationsCount,
-                SlowOperationRate = _totalOperations > 0 ? (double)_slowOperationsCount / _totalOperations : 0.0,
+                SlowOperationRate = CalculateSlowOperationRate(),
                 LastMetricsReport = _lastMetricsReport
             };
         }
 
-        // ✅ 修正: 戻り値の型を正しく指定
+        // ✅ 修正: 正しい戻り値の型を使用し、基底クラスの型と一致させる
         public  CacheStatistics GetGlobalStatistics()
         {
-            return new CacheStatistics
+            return new CacheStatistics  // ← 同じnamespace内のCacheStatistics
             {
                 TotalRequests = CalculateTotalRequests(),
                 CacheHits = CalculateTotalHits(),
@@ -288,7 +240,10 @@ namespace KsqlDsl.Serialization.Avro.Cache
                 Uptime = DateTime.UtcNow - _startTime
             };
         }
-
+        private double CalculateSlowOperationRate()
+        {
+            return _totalOperations > 0 ? (double)_slowOperationsCount / _totalOperations : 0.0;
+        }
         private long CalculateTotalHits()
         {
             return _entityMetrics.Values
@@ -411,21 +366,6 @@ namespace KsqlDsl.Serialization.Avro.Cache
 
                 _disposed = true;
             }
-        }
-
-        // ✅ 追加: CacheStatisticsクラスを別で定義（重複排除）
-        public new class CacheStatistics
-        {
-            public long TotalRequests { get; set; }
-            public long CacheHits { get; set; }
-            public long CacheMisses { get; set; }
-            public int CachedItemCount { get; set; }
-            public DateTime LastAccess { get; set; }
-            public DateTime? LastClear { get; set; }
-            public TimeSpan Uptime { get; set; }
-
-            public double HitRate => TotalRequests > 0 ? (double)CacheHits / TotalRequests : 0.0;
-            public double MissRate => TotalRequests > 0 ? (double)CacheMisses / TotalRequests : 0.0;
         }
     }
 }

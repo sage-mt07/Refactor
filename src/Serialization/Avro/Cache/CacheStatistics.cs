@@ -1,8 +1,9 @@
-﻿using System;
+﻿using KsqlDsl.Core.Abstractions;
+using System;
 
 namespace KsqlDsl.Serialization.Avro.Cache
 {
-    public class CacheStatistics
+    public class CacheStatistics : ICacheStatistics
     {
         public long TotalRequests { get; set; }
         public long CacheHits { get; set; }
