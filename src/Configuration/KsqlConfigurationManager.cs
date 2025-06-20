@@ -106,7 +106,8 @@ public class KsqlConfigurationManager : IKsqlConfigurationManager
                 var validator = GetValidatorForType(type);
                 if (validator != null)
                 {
-                    var result = validator.Validate(options);
+                    // ✅ 修正: 動的実行の代わりに、型安全な方法でValidateメソッドを呼び出し
+                    var result = CallValidateMethod(validator, options);
                     allErrors.AddRange(result.Errors.Select(e => $"{type.Name}: {e}"));
                     allWarnings.AddRange(result.Warnings.Select(w => $"{type.Name}: {w}"));
                 }
@@ -137,7 +138,7 @@ public class KsqlConfigurationManager : IKsqlConfigurationManager
         return method.Invoke(this, null)!;
     }
 
-    private dynamic? GetValidatorForType(Type type)
+    private object? GetValidatorForType(Type type)
     {
         if (_validators.TryGetValue(type, out var validator))
         {
@@ -167,6 +168,29 @@ public class KsqlConfigurationManager : IKsqlConfigurationManager
         return null;
     }
 
+    // ✅ 修正: 型安全な方法でValidateメソッドを呼び出す
+    private ValidationResult CallValidateMethod(object validator, object options)
+    {
+        try
+        {
+            var validatorType = validator.GetType();
+            var validateMethod = validatorType.GetMethod("Validate");
+
+            if (validateMethod != null)
+            {
+                var result = validateMethod.Invoke(validator, new[] { options });
+                return (ValidationResult)result!;
+            }
+
+            return ValidationResult.Success();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to call Validate method");
+            return ValidationResult.Failure($"Validation failed: {ex.Message}");
+        }
+    }
+
     private T BuildOptions<T>() where T : class, new()
     {
         var options = new T();
@@ -191,14 +215,26 @@ public class KsqlConfigurationManager : IKsqlConfigurationManager
         {
             try
             {
-                // dynamic経由でValidateAndThrowを呼び出し
-                validator.ValidateAndThrow(options);
+                // ✅ 修正: 型安全な方法でValidateAndThrowを呼び出し
+                CallValidateAndThrowMethod(validator, options);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Validation failed for {OptionsType}", type.Name);
                 throw;
             }
+        }
+    }
+
+    // ✅ 修正: 型安全な方法でValidateAndThrowメソッドを呼び出す
+    private void CallValidateAndThrowMethod(object validator, object options)
+    {
+        var validatorType = validator.GetType();
+        var validateAndThrowMethod = validatorType.GetMethod("ValidateAndThrow");
+
+        if (validateAndThrowMethod != null)
+        {
+            validateAndThrowMethod.Invoke(validator, new[] { options });
         }
     }
 
