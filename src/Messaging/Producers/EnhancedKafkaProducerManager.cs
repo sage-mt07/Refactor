@@ -9,7 +9,6 @@ using KsqlDsl.Monitoring.Abstractions;
 using KsqlDsl.Monitoring.Abstractions.Models;
 using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Abstractions;
-using KsqlDsl.Serialization.Avro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -188,7 +187,7 @@ namespace KsqlDsl.Messaging.Producers
             catch (System.Exception ex)
             {
                 stopwatch.Stop();
-                RecordBatchSend<T>(messageList.Count,  false, stopwatch.Elapsed);
+                RecordBatchSend<T>(messageList.Count, false, stopwatch.Elapsed);
 
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
 

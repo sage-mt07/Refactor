@@ -1,5 +1,4 @@
-﻿using KsqlDsl.Serialization.Avro.Core;
-using KsqlDsl.Serialization.Avro.Management;
+﻿using KsqlDsl.Serialization.Avro.Management;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 namespace KsqlDsl.Serialization.Abstractions

@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace KsqlDsl.Monitoring.Abstractions.Models
+namespace KsqlDsl.Serialization.Avro.Cache
 {
-
-
     public class EntityCacheStatus
     {
         public Type EntityType { get; set; } = null!;

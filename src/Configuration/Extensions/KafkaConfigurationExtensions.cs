@@ -29,7 +29,7 @@ namespace KsqlDsl.Configuration.Extensions
                 LingerMs = config.LingerMs,
                 BatchSize = config.BatchSize,
                 RequestTimeoutMs = config.RequestTimeoutMs,
-             
+
                 RetryBackoffMs = config.RetryBackoffMs,
                 SecurityProtocol = (Confluent.Kafka.SecurityProtocol)config.SecurityProtocol
             };
@@ -74,7 +74,7 @@ namespace KsqlDsl.Configuration.Extensions
                 HeartbeatIntervalMs = config.HeartbeatIntervalMs,
                 MaxPollIntervalMs = config.MaxPollIntervalMs,
                 FetchMinBytes = config.FetchMinBytes,
-                FetchMaxWaitMs = config.FetchMaxWaitMs,
+              
                 FetchMaxBytes = config.FetchMaxBytes,
                 SecurityProtocol = config.SecurityProtocol
             };

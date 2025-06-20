@@ -15,7 +15,7 @@ namespace KsqlDsl.Query.EventSets
     /// EventSet Push/Pull型操作、EMIT制御
     /// 設計理由：ストリーミング関連責務の分離
     /// </summary>
-    public  class EventSetStreaming<T> : EventSetCore<T> where T : class
+    public class EventSetStreaming<T> : EventSetCore<T> where T : class
     {
         private readonly IQueryTranslator _queryTranslator;
 

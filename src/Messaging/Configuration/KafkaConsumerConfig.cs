@@ -1,4 +1,5 @@
-﻿using KsqlDsl.Configuration.Abstractions;
+﻿using Confluent.Kafka;
+using KsqlDsl.Configuration.Abstractions;
 
 using System;
 using System.Collections.Generic;
@@ -14,7 +15,7 @@ public class KafkaConsumerConfig
     // 基本設定
     public string BootstrapServers { get; set; } = "localhost:9092";
     public string DefaultGroupId { get; set; } = "ksqldsl-default";
-    public AutoOffsetReset AutoOffsetReset { get; set; } = AutoOffsetReset.Latest;
+    public Confluent.Kafka.AutoOffsetReset AutoOffsetReset { get; set; } = Confluent.Kafka.AutoOffsetReset.Latest;
     public bool EnableAutoCommit { get; set; } = true;
     public int AutoCommitIntervalMs { get; set; } = 5000;
 

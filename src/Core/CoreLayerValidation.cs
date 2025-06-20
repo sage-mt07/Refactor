@@ -1,9 +1,9 @@
 ﻿using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Core.Validation;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using KsqlDsl.Core.Validation;
 
 namespace KsqlDsl.Core
 {

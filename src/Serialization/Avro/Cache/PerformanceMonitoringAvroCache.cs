@@ -1,5 +1,4 @@
 ﻿using KsqlDsl.Configuration.Options;
-using KsqlDsl.Monitoring.Performance;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Logging;
@@ -227,7 +226,7 @@ namespace KsqlDsl.Serialization.Avro.Cache
         }
 
         // ✅ 修正: 正しい戻り値の型を使用し、基底クラスの型と一致させる
-        public  CacheStatistics GetGlobalStatistics()
+        public CacheStatistics GetGlobalStatistics()
         {
             return new CacheStatistics  // ← 同じnamespace内のCacheStatistics
             {

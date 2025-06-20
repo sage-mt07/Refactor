@@ -1,14 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace KsqlDsl.Monitoring.Abstractions.Models
+namespace KsqlDsl.Messaging.Producers.Core
 {
-    // =============================================================================
-    // Statistics & Health Classes - 統計・ヘルス情報
-    // =============================================================================
-
-    /// <summary>
-    /// Producer統計情報
-    /// </summary>
     public class KafkaProducerStats
     {
         public long TotalMessagesSent { get; set; }
@@ -22,6 +19,4 @@ namespace KsqlDsl.Monitoring.Abstractions.Models
         public long TotalBytesSent { get; set; }
         public double MessagesPerSecond { get; set; }
     }
-
-
 }

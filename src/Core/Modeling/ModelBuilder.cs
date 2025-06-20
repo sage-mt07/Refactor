@@ -1,10 +1,8 @@
 ﻿using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Configuration.Validation;
 using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Core.Attributes;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 

@@ -98,14 +98,14 @@ namespace KsqlDsl.Query.Translation
             {
                 var joinCall = result.MethodCalls.First(mc => mc.Method.Name == "Join");
                 // JOINの場合は構文全体を再構築
-                _joinBuilder.Build(joinCall); 
+                _joinBuilder.Build(joinCall);
             }
         }
 
         private string BuildAggregateSelect(Expression selectExpression)
         {
             // 既存KsqlAggregateBuilderを活用
-            return  _groupByBuilder.Build(selectExpression);
+            return _groupByBuilder.Build(selectExpression);
         }
 
         private string BuildWhereClause(Expression whereExpression)

@@ -1,5 +1,4 @@
 ﻿using KsqlDsl.Configuration.Abstractions;
-using System;
 
 namespace KsqlDsl.Configuration.Builders;
 

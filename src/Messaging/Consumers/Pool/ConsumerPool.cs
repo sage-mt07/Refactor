@@ -514,7 +514,7 @@ public class ConsumerPool : IDisposable
         try
         {
             var handle = pooledConsumer.Consumer.Handle;
-            if (handle == null ) return false;
+            if (handle == null) return false;
 
             var idleTime = DateTime.UtcNow - pooledConsumer.LastUsed;
             if (idleTime > _config.ConsumerIdleTimeout) return false;

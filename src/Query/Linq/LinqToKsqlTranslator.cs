@@ -87,7 +87,7 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                         // GroupBy後のSelectは集約クエリとして処理
                         if (_hasAggregation && _isAfterGroupBy)
                         {
-                            var aggregateBuilder =new GroupByBuilder().Build(selectExpression);
+                            var aggregateBuilder = new GroupByBuilder().Build(selectExpression);
                             _selectClause = aggregateBuilder;
                         }
                         else
@@ -105,7 +105,7 @@ internal class LinqToKsqlTranslator : ExpressionVisitor
                     var groupByExpression = UnwrapLambda(node.Arguments[1]);
                     if (groupByExpression != null)
                     {
-                        var groupByBuilder =new GroupByBuilder().Build(groupByExpression);
+                        var groupByBuilder = new GroupByBuilder().Build(groupByExpression);
                         _groupByClause = groupByBuilder;
                         _hasAggregation = true;
                         _isAfterGroupBy = true;

@@ -1,6 +1,5 @@
 ﻿using KsqlDsl.Configuration;
 using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Core.Context;
 using KsqlDsl.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using System;
