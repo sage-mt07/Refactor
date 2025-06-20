@@ -1,5 +1,4 @@
 ﻿using Confluent.Kafka;
-using KsqlDsl.Configuration.Abstractions;
 
 using System;
 using System.Collections.Generic;
