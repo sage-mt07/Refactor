@@ -1,5 +1,4 @@
 ﻿using KsqlDsl.Configuration.Options;
-using KsqlDsl.Monitoring.Metrics;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Logging;

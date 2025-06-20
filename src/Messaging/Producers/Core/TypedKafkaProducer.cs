@@ -112,8 +112,13 @@ namespace KsqlDsl.Messaging.Producers.Core
             {
                 return new KafkaBatchDeliveryResult
                 {
-                    Topic = _topicName,
-                    AllSuccessful = true
+                    Topic = _topicName,                    // TopicName を設定
+                    TotalMessages = 0,
+                    SuccessfulCount = 0,
+                    FailedCount = 0,                      // AllSuccessful は自動計算
+                    Results = new List<KafkaDeliveryResult>(),
+                    Errors = new List<BatchDeliveryError>(),
+                    TotalLatency = TimeSpan.Zero
                 };
             }
 

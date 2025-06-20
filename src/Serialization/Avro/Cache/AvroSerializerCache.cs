@@ -1,6 +1,5 @@
 ﻿using Confluent.Kafka;
 using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Monitoring.Metrics;
 using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;

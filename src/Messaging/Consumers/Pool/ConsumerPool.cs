@@ -14,14 +14,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-
 namespace KsqlDsl.Messaging.Consumers.Pool;
 
 public class ConsumerPool : IDisposable
 {
     private readonly ConcurrentDictionary<ConsumerKey, ConcurrentQueue<PooledConsumer>> _pools = new();
     private readonly ConcurrentDictionary<ConsumerKey, ConsumerPoolMetrics> _poolMetrics = new();
-    private readonly ConcurrentDictionary<ConsumerKey, ConsumerInstance> _activeConsumers = new();
+    private readonly ConcurrentDictionary<string, ConsumerInstance> _activeConsumers = new(); // 🔧 string key に変更
     private readonly ConsumerPoolConfig _config;
     private readonly ILogger<ConsumerPool> _logger;
     private readonly Timer _maintenanceTimer;
@@ -39,15 +38,12 @@ public class ConsumerPool : IDisposable
         _config = config?.Value ?? throw new ArgumentNullException(nameof(config));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        // 定期メンテナンス（プール最適化・余剰Consumer削除）
         _maintenanceTimer = new Timer(PerformMaintenance, null,
             _config.MaintenanceInterval, _config.MaintenanceInterval);
 
-        // ヘルスチェック
         _healthCheckTimer = new Timer(PerformHealthCheck, null,
             _config.HealthCheckInterval, _config.HealthCheckInterval);
 
-        // リバランシング監視（Consumer特有）
         _rebalanceTimer = new Timer(MonitorRebalancing, null,
             TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
 
@@ -55,10 +51,6 @@ public class ConsumerPool : IDisposable
             _config.MinPoolSize, _config.MaxPoolSize, _config.ConsumerIdleTimeout);
     }
 
-    /// <summary>
-    /// Consumer取得
-    /// 設計理由：プールからの効率的取得、購読状態管理による可用性確保
-    /// </summary>
     public ConsumerInstance RentConsumer(ConsumerKey key)
     {
         if (key == null)
@@ -67,7 +59,6 @@ public class ConsumerPool : IDisposable
         var pool = _pools.GetOrAdd(key, _ => new ConcurrentQueue<PooledConsumer>());
         var metrics = _poolMetrics.GetOrAdd(key, _ => new ConsumerPoolMetrics { ConsumerKey = key });
 
-        // プールから利用可能Consumer検索
         while (pool.TryDequeue(out var pooledConsumer))
         {
             if (IsConsumerHealthy(pooledConsumer))
@@ -75,7 +66,6 @@ public class ConsumerPool : IDisposable
                 pooledConsumer.LastUsed = DateTime.UtcNow;
                 pooledConsumer.UsageCount++;
 
-                // アクティブConsumerとして登録
                 var instance = new ConsumerInstance
                 {
                     ConsumerKey = key,
@@ -84,7 +74,8 @@ public class ConsumerPool : IDisposable
                     IsActive = true
                 };
 
-                _activeConsumers[GenerateInstanceKey(key, instance)] = instance;
+                var instanceKey = GenerateInstanceKey(key, instance);
+                _activeConsumers[instanceKey] = instance;
 
                 lock (metrics)
                 {
@@ -99,13 +90,11 @@ public class ConsumerPool : IDisposable
             }
             else
             {
-                // 不健全なConsumerは破棄
                 DisposeConsumerSafely(pooledConsumer.Consumer);
                 RecordConsumerDisposal(key, "unhealthy");
             }
         }
 
-        // プールに利用可能Consumerがない場合は新規作成
         var newConsumer = CreateNewConsumer(key);
         var newInstance = new ConsumerInstance
         {
@@ -122,7 +111,8 @@ public class ConsumerPool : IDisposable
             IsActive = true
         };
 
-        _activeConsumers[GenerateInstanceKey(key, newInstance)] = newInstance;
+        var newInstanceKey = GenerateInstanceKey(key, newInstance);
+        _activeConsumers[newInstanceKey] = newInstance;
 
         lock (metrics)
         {
@@ -136,10 +126,6 @@ public class ConsumerPool : IDisposable
         return newInstance;
     }
 
-    /// <summary>
-    /// Consumer返却
-    /// 設計理由：プールへの効率的な返却、購読状態の適切な管理
-    /// </summary>
     public void ReturnConsumer(ConsumerKey key, ConsumerInstance instance)
     {
         if (key == null || instance == null) return;
@@ -154,7 +140,6 @@ public class ConsumerPool : IDisposable
 
             var currentPoolSize = pool.Count;
 
-            // Consumerの健全性チェック
             if (!IsConsumerHealthy(instance.PooledConsumer))
             {
                 DisposeConsumerSafely(instance.PooledConsumer.Consumer);
@@ -168,10 +153,8 @@ public class ConsumerPool : IDisposable
                 return;
             }
 
-            // プールサイズ制限チェック
             if (currentPoolSize >= _config.MaxPoolSize)
             {
-                // プールが満杯の場合は破棄
                 DisposeConsumerSafely(instance.PooledConsumer.Consumer);
                 RecordConsumerDisposal(key, "pool_full");
 
@@ -186,7 +169,6 @@ public class ConsumerPool : IDisposable
                 return;
             }
 
-            // プールに返却
             instance.PooledConsumer.LastUsed = DateTime.UtcNow;
             instance.IsActive = false;
             pool.Enqueue(instance.PooledConsumer);
@@ -207,10 +189,6 @@ public class ConsumerPool : IDisposable
         }
     }
 
-    /// <summary>
-    /// 割り当てパーティション取得
-    /// 設計理由：Consumer状態の透明性確保、デバッグ支援
-    /// </summary>
     public async Task<List<TopicPartition>> GetAssignedPartitionsAsync(ConsumerKey key)
     {
         var assignedPartitions = new List<TopicPartition>();
@@ -225,7 +203,6 @@ public class ConsumerPool : IDisposable
             {
                 if (instance.PooledConsumer?.Consumer != null)
                 {
-                    // Confluentライブラリの制限により、同期的にアクセス
                     await Task.Delay(1);
                     var partitions = instance.PooledConsumer.Consumer.Assignment;
                     if (partitions != null)
@@ -243,10 +220,6 @@ public class ConsumerPool : IDisposable
         return assignedPartitions.Distinct().ToList();
     }
 
-    /// <summary>
-    /// オフセット情報取得
-    /// 設計理由：Consumerラグ監視、パフォーマンス分析支援
-    /// </summary>
     public async Task<Dictionary<TopicPartition, Offset>> GetOffsetsAsync(ConsumerKey key)
     {
         var allOffsets = new Dictionary<TopicPartition, Offset>();
@@ -292,13 +265,9 @@ public class ConsumerPool : IDisposable
         return allOffsets;
     }
 
-    /// <summary>
-    /// ヘルス状態取得
-    /// 設計理由：プール全体の健全性監視、Consumer特有の問題検出
-    /// </summary>
     public async Task<ConsumerPoolHealthStatus> GetHealthStatusAsync()
     {
-        await Task.Delay(1); // 非同期メソッドの形式保持
+        await Task.Delay(1);
 
         try
         {
@@ -313,7 +282,6 @@ public class ConsumerPool : IDisposable
                 LastCheck = DateTime.UtcNow
             };
 
-            // 健全性問題検出
             var unhealthyPools = 0;
             var rebalanceIssues = 0;
             var overloadedPools = 0;
@@ -325,19 +293,16 @@ public class ConsumerPool : IDisposable
 
                 lock (metrics)
                 {
-                    // 失敗率チェック
-                    if (metrics.FailureRate > 0.1) // 10%以上の失敗率
+                    if (metrics.FailureRate > 0.1)
                     {
                         unhealthyPools++;
                     }
 
-                    // リバランシング問題チェック
                     if (metrics.RebalanceFailures > 0)
                     {
                         rebalanceIssues++;
                     }
 
-                    // 過負荷チェック
                     if (poolSize == 0 && metrics.ActiveConsumers > _config.MaxPoolSize * 0.8)
                     {
                         overloadedPools++;
@@ -345,8 +310,7 @@ public class ConsumerPool : IDisposable
                 }
             }
 
-            // ヘルスレベル決定
-            if (unhealthyPools > _pools.Count * 0.2) // 20%以上のプールに問題
+            if (unhealthyPools > _pools.Count * 0.2)
             {
                 status.HealthLevel = ConsumerPoolHealthLevel.Critical;
                 status.Issues.Add(new ConsumerPoolHealthIssue
@@ -398,17 +362,12 @@ public class ConsumerPool : IDisposable
         }
     }
 
-    /// <summary>
-    /// リバランシング実行
-    /// 設計理由：Consumer特有のリバランシング処理、負荷分散最適化
-    /// </summary>
     public void RebalanceConsumers()
     {
         var rebalanceCount = 0;
 
         try
         {
-            // グループごとのConsumer分析
             var consumersByGroup = _activeConsumers.Values
                 .Where(i => i.IsActive)
                 .GroupBy(i => i.ConsumerKey.GroupId)
@@ -418,24 +377,21 @@ public class ConsumerPool : IDisposable
             {
                 var consumers = group.ToList();
 
-                // 同一グループ内でのリバランシング検討
                 if (consumers.Count > 1)
                 {
                     var overloadedConsumers = consumers
-                        .Where(c => c.PooledConsumer?.UsageCount > 100) // 使用回数閾値
+                        .Where(c => c.PooledConsumer?.UsageCount > 100)
                         .ToList();
 
                     var underloadedConsumers = consumers
                         .Where(c => c.PooledConsumer?.UsageCount < 10)
                         .ToList();
 
-                    // 負荷の再分散が必要な場合
                     if (overloadedConsumers.Any() && underloadedConsumers.Any())
                     {
                         _logger.LogInformation("Rebalancing consumers in group {GroupId}: {OverloadedCount} overloaded, {UnderloadedCount} underloaded",
                             group.Key, overloadedConsumers.Count, underloadedConsumers.Count);
 
-                        // 実際のリバランシング処理は複雑なため、ここでは統計のみ
                         rebalanceCount++;
                     }
                 }
@@ -452,9 +408,6 @@ public class ConsumerPool : IDisposable
         }
     }
 
-    /// <summary>
-    /// 診断情報取得
-    /// </summary>
     public ConsumerPoolDiagnostics GetDiagnostics()
     {
         return new ConsumerPoolDiagnostics
@@ -506,7 +459,11 @@ public class ConsumerPool : IDisposable
         return result;
     }
 
-    // プライベートヘルパーメソッド
+    // ✅ 修正: 文字列キーを返すように変更
+    private string GenerateInstanceKey(ConsumerKey key, ConsumerInstance instance)
+    {
+        return $"{key}:{instance.RentedAt.Ticks}";
+    }
 
     private IConsumer<object, object> CreateNewConsumer(ConsumerKey key)
     {
@@ -536,15 +493,15 @@ public class ConsumerPool : IDisposable
     {
         var config = new ConsumerConfig
         {
-            BootstrapServers = "localhost:9092", // 実際は設定から取得
+            BootstrapServers = "localhost:9092",
             GroupId = key.GroupId,
-            AutoOffsetReset = AutoOffsetReset.Latest,
+            AutoOffsetReset = Confluent.Kafka.AutoOffsetReset.Latest,
             EnableAutoCommit = true,
             SessionTimeoutMs = 30000,
             HeartbeatIntervalMs = 3000,
             MaxPollIntervalMs = 300000,
             FetchMinBytes = 1,
-            FetchMaxWaitMs = 500
+            FetchMaxBytes = 52428800
         };
 
         return config;
@@ -556,11 +513,9 @@ public class ConsumerPool : IDisposable
 
         try
         {
-            // Consumer健全性チェック（Producerより複雑）
             var handle = pooledConsumer.Consumer.Handle;
-            if (handle == null || handle.IsClosed) return false;
+            if (handle == null ) return false;
 
-            // 最後の使用から一定時間経過チェック
             var idleTime = DateTime.UtcNow - pooledConsumer.LastUsed;
             if (idleTime > _config.ConsumerIdleTimeout) return false;
 
@@ -598,13 +553,6 @@ public class ConsumerPool : IDisposable
 
         _logger.LogTrace("Consumer disposed: {ConsumerKey}, Reason: {Reason}", key, reason);
     }
-
-    private string GenerateInstanceKey(ConsumerKey key, ConsumerInstance instance)
-    {
-        return $"{key}:{instance.RentedAt.Ticks}";
-    }
-
-    // 定期処理メソッド
 
     private void PerformMaintenance(object? state)
     {
@@ -727,14 +675,12 @@ public class ConsumerPool : IDisposable
             _healthCheckTimer?.Dispose();
             _rebalanceTimer?.Dispose();
 
-            // 全アクティブConsumer停止
             foreach (var instance in _activeConsumers.Values)
             {
                 DisposeConsumerSafely(instance.PooledConsumer?.Consumer);
             }
             _activeConsumers.Clear();
 
-            // 全プールConsumer破棄
             var totalDisposed = 0;
             foreach (var pool in _pools.Values)
             {

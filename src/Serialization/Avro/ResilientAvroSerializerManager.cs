@@ -1,6 +1,5 @@
 ﻿using Confluent.SchemaRegistry;
 using KsqlDsl.Configuration.Options;
-using KsqlDsl.Monitoring.Metrics;
 using KsqlDsl.Monitoring.Tracing;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
