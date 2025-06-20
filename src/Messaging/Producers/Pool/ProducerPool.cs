@@ -1,5 +1,5 @@
 ﻿using Confluent.Kafka;
-using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Configuration;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Messaging.Producers.Exception;

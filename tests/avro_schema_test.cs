@@ -1,5 +1,5 @@
 using KsqlDsl.Attributes;
-using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Configuration;
 using KsqlDsl.Configuration.Builders;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Services;

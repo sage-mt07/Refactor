@@ -1,5 +1,5 @@
 // src/KafkaContext.cs - Core層統合完全版
-using KsqlDsl.Configuration.Abstractions;
+using KsqlDsl.Configuration;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Context;
 using KsqlDsl.Core.Modeling;

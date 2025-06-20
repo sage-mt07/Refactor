@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace KsqlDsl.Configuration.Abstractions;
+namespace KsqlDsl.Configuration;
 
 
 

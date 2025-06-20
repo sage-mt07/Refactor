@@ -1,4 +1,4 @@
-﻿namespace KsqlDsl.Configuration.Abstractions;
+﻿namespace KsqlDsl.Configuration;
 
 /// <summary>
 /// Kafka統合バス全体の設定

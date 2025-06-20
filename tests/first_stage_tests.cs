@@ -1,6 +1,5 @@
 using KsqlDsl.Attributes;
 using KsqlDsl.Configuration;
-using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Options;
 using KsqlDsl.Validation;
 using System;

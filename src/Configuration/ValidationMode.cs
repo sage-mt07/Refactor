@@ -1,4 +1,4 @@
-﻿namespace KsqlDsl.Configuration.Abstractions;
+﻿namespace KsqlDsl.Configuration;
 
 
 public enum ValidationMode
