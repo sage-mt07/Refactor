@@ -1,5 +1,7 @@
-﻿using KsqlDsl.Core.Abstractions;
+﻿using KsqlDsl.Configuration;
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Context;
+using KsqlDsl.Core.Services;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 
@@ -13,17 +15,14 @@ namespace KsqlDsl.Core
     {
         public static IServiceCollection AddKsqlDslCore(this IServiceCollection services)
         {
-            // Core Abstractions（インターフェース）の登録は上位層で実装
-            // ここではCore層内部の基盤のみ提供
-
-            services.AddSingleton<ModelBinding>();
-
+            services.AddSingleton<ICoreIntegrationService, CoreIntegrationService>();
+            services.AddSingleton<IModelBindingService, ModelBindingService>();
             return services;
         }
 
+
         public static void ValidateCoreLayerDependencies()
         {
-            // Core層の依存関係検証
             var coreTypes = new[]
             {
                 typeof(IKafkaContext),

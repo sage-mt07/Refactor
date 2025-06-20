@@ -11,10 +11,6 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl.Core.Context;
 
-/// <summary>
-/// Core層KafkaContext実装
-/// 外部依存を除外したクリーンな実装
-/// </summary>
 public abstract class KafkaContextCore : IKafkaContext
 {
     private readonly Lazy<ModelBuilder> _modelBuilder;
@@ -76,10 +72,6 @@ public abstract class KafkaContextCore : IKafkaContext
     public virtual async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         await Task.Delay(1, cancellationToken);
-
-        if (Options.EnableDebugLogging)
-            Console.WriteLine("[DEBUG] KafkaContext.SaveChangesAsync: Kafka流では通常不要（AddAsync時に即時送信）");
-
         return 0;
     }
 
@@ -88,17 +80,7 @@ public abstract class KafkaContextCore : IKafkaContext
     public async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
     {
         var modelBuilder = _modelBuilder.Value;
-
-        if (Options.EnableDebugLogging)
-        {
-            Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: インフラストラクチャ作成開始");
-            Console.WriteLine(modelBuilder.GetModelSummary());
-        }
-
-        await Task.Delay(1, cancellationToken);
-
-        if (Options.EnableDebugLogging)
-            Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: インフラストラクチャ作成完了");
+        await modelBuilder.BuildAsync();
     }
 
     public void EnsureCreated() => EnsureCreatedAsync().GetAwaiter().GetResult();
@@ -114,7 +96,6 @@ public abstract class KafkaContextCore : IKafkaContext
             $"Schema Registry: {Options.SchemaRegistryUrl}",
             $"Validation Mode: {Options.ValidationMode}",
             $"Consumer Group: {Options.ConsumerGroupId}",
-            $"Auto Schema Registration: {Options.EnableAutoSchemaRegistration}",
             $"Model Built: {_modelBuilt}",
             $"EntitySets Count: {_entitySets.Count}"
         };
@@ -125,16 +106,9 @@ public abstract class KafkaContextCore : IKafkaContext
             diagnostics.Add(_modelBuilder.Value.GetModelSummary());
         }
 
-        if (Options.TopicOverrideService.GetAllOverrides().Any())
-        {
-            diagnostics.Add("");
-            diagnostics.Add(Options.TopicOverrideService.GetOverrideSummary());
-        }
-
         return string.Join(Environment.NewLine, diagnostics);
     }
 
-    // 抽象メソッド：上位層での実装
     protected abstract IEntitySet<T> CreateEntitySet<T>(EntityModel entityModel) where T : class;
 
     private ModelBuilder CreateModelBuilder()
@@ -147,16 +121,7 @@ public abstract class KafkaContextCore : IKafkaContext
 
     private void InitializeEntitySets()
     {
-        var contextType = GetType();
-        var eventSetProperties = contextType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.PropertyType.IsGenericType &&
-                       p.PropertyType.GetGenericTypeDefinition() == typeof(IEntitySet<>))
-            .ToArray();
-
-        foreach (var property in eventSetProperties)
-        {
-            var entityType = property.PropertyType.GetGenericArguments()[0];
-        }
+        // 初期化処理
     }
 
     public void Dispose()
@@ -170,10 +135,6 @@ public abstract class KafkaContextCore : IKafkaContext
         if (!_disposed && disposing)
         {
             _entitySets.Clear();
-
-            if (Options.EnableDebugLogging)
-                Console.WriteLine("[DEBUG] KafkaContext.Dispose: リソース解放完了");
-
             _disposed = true;
         }
     }
@@ -188,13 +149,5 @@ public abstract class KafkaContextCore : IKafkaContext
     protected virtual async ValueTask DisposeAsyncCore()
     {
         await Task.Delay(1);
-    }
-
-    public override string ToString()
-    {
-        var connectionInfo = !string.IsNullOrEmpty(Options.ConnectionString)
-            ? Options.ConnectionString
-            : "未設定";
-        return $"{GetType().Name} → {connectionInfo}";
     }
 }

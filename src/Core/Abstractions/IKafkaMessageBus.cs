@@ -17,7 +17,6 @@ public interface IKafkaMessageBus : IDisposable
 
     Task<List<T>> FetchAsync<T>(KafkaFetchOptions options, CancellationToken cancellationToken = default) where T : class;
 
-    Task<KafkaHealthReport> GetHealthReportAsync();
-
-    KafkaDiagnostics GetDiagnostics();
+    Task<CoreHealthReport> GetHealthReportAsync();
+    CoreDiagnostics GetDiagnostics();
 }

@@ -7,7 +7,7 @@ using KsqlDsl.Messaging.Producers.Exception;
 using KsqlDsl.Messaging.Producers.Pool;
 using KsqlDsl.Monitoring.Abstractions;
 using KsqlDsl.Monitoring.Abstractions.Models;
-using KsqlDsl.Serialization.Avro;
+using KsqlDsl.Monitoring.Tracing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;

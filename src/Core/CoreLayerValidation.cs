@@ -1,9 +1,9 @@
 ﻿using KsqlDsl.Core.Abstractions;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Reflection;
+using KsqlDsl.Core.Validation;
 
 namespace KsqlDsl.Core
 {
@@ -23,9 +23,9 @@ namespace KsqlDsl.Core
             "KsqlDsl.Services"
         };
 
-        public static ValidationResult ValidateCoreDependencies()
+        public static CoreValidationResult ValidateCoreDependencies()
         {
-            var result = new ValidationResult { IsValid = true };
+            var result = new CoreValidationResult { IsValid = true };
             var coreAssembly = typeof(IKafkaContext).Assembly;
             var coreTypes = coreAssembly.GetTypes()
                 .Where(t => t.Namespace?.StartsWith("KsqlDsl.Core") == true);
@@ -38,7 +38,7 @@ namespace KsqlDsl.Core
             return result;
         }
 
-        private static void ValidateTypedependencies(Type type, ValidationResult result)
+        private static void ValidateTypedependencies(Type type, CoreValidationResult result)
         {
             var dependencies = type.GetReferencedTypes();
 
