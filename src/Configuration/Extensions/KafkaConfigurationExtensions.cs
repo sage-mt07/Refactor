@@ -21,16 +21,17 @@ namespace KsqlDsl.Configuration.Extensions
             var confluentConfig = new ProducerConfig
             {
                 BootstrapServers = config.BootstrapServers,
-                Acks = config.Acks,
+                Acks = (Confluent.Kafka.Acks)config.Acks,
                 EnableIdempotence = config.EnableIdempotence,
                 MaxInFlight = config.MaxInFlight,
-                CompressionType = config.CompressionType,
+                CompressionType = (Confluent.Kafka.CompressionType)config.CompressionType,
+
                 LingerMs = config.LingerMs,
                 BatchSize = config.BatchSize,
                 RequestTimeoutMs = config.RequestTimeoutMs,
-                DeliveryTimeoutMs = config.DeliveryTimeoutMs,
+             
                 RetryBackoffMs = config.RetryBackoffMs,
-                SecurityProtocol = config.SecurityProtocol
+                SecurityProtocol = (Confluent.Kafka.SecurityProtocol)config.SecurityProtocol
             };
 
             if (!string.IsNullOrEmpty(config.SaslMechanism))

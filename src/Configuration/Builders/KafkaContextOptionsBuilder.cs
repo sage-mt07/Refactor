@@ -24,6 +24,9 @@ public class KafkaContextOptionsBuilder
         _options.ValidationMode = mode;
         return this;
     }
-
+    public KafkaContextOptions GetOptions()
+    {
+        return _options;
+    }
     public KafkaContextOptions Build() => _options.Clone();
 }

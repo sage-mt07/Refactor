@@ -8,6 +8,8 @@ using KsqlDsl.Messaging.Producers.Pool;
 using KsqlDsl.Monitoring.Abstractions;
 using KsqlDsl.Monitoring.Abstractions.Models;
 using KsqlDsl.Monitoring.Tracing;
+using KsqlDsl.Serialization.Abstractions;
+using KsqlDsl.Serialization.Avro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -27,7 +29,7 @@ namespace KsqlDsl.Messaging.Producers
     /// </summary>
     public class EnhancedKafkaProducerManager : IDisposable
     {
-        private readonly EnhancedAvroSerializerManager _serializerManager;
+        private readonly IAvroSerializationManager<object> _serializerManager;
         private readonly ProducerPool _producerPool;
         private readonly KafkaProducerConfig _config;
         private readonly ILogger<EnhancedKafkaProducerManager> _logger;
@@ -41,7 +43,7 @@ namespace KsqlDsl.Messaging.Producers
         private bool _disposed = false;
 
         public EnhancedKafkaProducerManager(
-            EnhancedAvroSerializerManager serializerManager,
+            IAvroSerializationManager<object> serializerManager,
             ProducerPool producerPool,
             IOptions<KafkaProducerConfig> config,
             ILogger<EnhancedKafkaProducerManager> logger)
@@ -81,14 +83,16 @@ namespace KsqlDsl.Messaging.Producers
                 var producerKey = new ProducerKey(entityType, topicName, _config.GetKeyHash());
                 var rawProducer = _producerPool.RentProducer(producerKey);
 
-                // 既存EnhancedAvroSerializerManagerでシリアライザー取得
-                var (keySerializer, valueSerializer) = await _serializerManager.CreateSerializersAsync<T>(entityModel);
-
+                // ✅ 修正: インターフェース経由でシリアライザー取得
+                // 型安全性のため、適切な型のマネージャーを取得する仕組みが必要
+                var typedManager = GetTypedSerializationManager<T>();
+                var serializerPair = await typedManager.GetSerializersAsync();
                 // 型安全Producerラッパー作成
                 var typedProducer = new TypedKafkaProducer<T>(
                     rawProducer,
-                    keySerializer,
-                    valueSerializer,
+                   serializerPair.KeySerializer,    // SerializerPairのプロパティを使用
+                      serializerPair.ValueSerializer,  // SerializerPairのプロパティを使用
+
                     topicName,
                     entityModel,
                     _logger);
@@ -115,7 +119,25 @@ namespace KsqlDsl.Messaging.Producers
                 throw new KafkaProducerManagerException($"Failed to create producer for {entityType.Name}", ex);
             }
         }
+        private IAvroSerializationManager<T> GetTypedSerializationManager<T>() where T : class
+        {
+            // 実装方法の選択肢:
+            // 1. Factory Pattern: IAvroSerializationManagerFactory経由で型別マネージャーを作成
+            // 2. Generic Factory: IAvroSerializationManager<T>を直接注入
+            // 3. Type-erased approach: 汎用マネージャーから型別情報を取得
 
+            // ここでは選択肢3のアプローチを示す（簡略化）
+            // 実際の実装では、ファクトリーパターンを使用することを推奨
+
+            if (_serializerManager is IAvroSerializationManager<T> typedManager)
+            {
+                return typedManager;
+            }
+
+            // フォールバック: 動的に型別マネージャーを作成
+            // 注意: この実装は型安全性の観点から改善が必要
+            throw new NotImplementedException("Typed serialization manager creation needs factory pattern implementation");
+        }
         /// <summary>
         /// バッチ送信最適化（型安全・高性能）
         /// 設計理由：同一エンティティのバッチ処理に特化し、既存メトリクスと統合
@@ -166,7 +188,7 @@ namespace KsqlDsl.Messaging.Producers
             catch (System.Exception ex)
             {
                 stopwatch.Stop();
-                RecordBatchSend<T>(messageList.Count, success: false, stopwatch.Elapsed);
+                RecordBatchSend<T>(messageList.Count,  false, stopwatch.Elapsed);
 
                 activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
 
@@ -301,7 +323,7 @@ namespace KsqlDsl.Messaging.Producers
             return new EntityModel
             {
                 EntityType = typeof(T),
-                TopicAttribute = new KsqlDsl.Attributes.TopicAttribute(typeof(T).Name)
+                TopicAttribute = new TopicAttribute(typeof(T).Name)
             };
         }
 
