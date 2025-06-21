@@ -42,39 +42,9 @@ internal class SchemaRegistryClientWrapper : IDisposable
         return await _client.RegisterSchemaAsync(subject, schema);
     }
 
-    public async Task<AvroSchemaInfo> GetLatestSchemaAsync(string subject)
-    {
-        var registeredSchema = await _client.GetRegisteredSchemaAsync(subject, -1);
-        return new AvroSchemaInfo
-        {
-            EntityType = typeof(object),
-            Type = SerializerType.Value,
-            SchemaId = registeredSchema.Id,
-            Version = registeredSchema.Version,
-            Subject = registeredSchema.Subject,
-            AvroSchema = registeredSchema.SchemaString,
-            RegisteredAt = DateTime.UtcNow,
-            LastUsed = DateTime.UtcNow,
-            UsageCount = 0
-        };
-    }
 
-    public async Task<AvroSchemaInfo> GetSchemaByIdAsync(int schemaId)
-    {
-        var schema = await _client.GetSchemaAsync(schemaId);
-        return new AvroSchemaInfo
-        {
-            EntityType = typeof(object),
-            Type = SerializerType.Value,
-            SchemaId = schemaId,
-            Version = -1,  // 不明な場合のデフォルト値
-            Subject = "unknown", // 不明な場合のデフォルト値
-            AvroSchema = schema.SchemaString,
-            RegisteredAt = DateTime.UtcNow,
-            LastUsed = DateTime.UtcNow,
-            UsageCount = 0
-        };
-    }
+
+
 
     public async Task<bool> CheckCompatibilityAsync(string subject, string avroSchema)
     {
@@ -87,22 +57,7 @@ internal class SchemaRegistryClientWrapper : IDisposable
         return await _client.GetSubjectVersionsAsync(subject);
     }
 
-    public async Task<AvroSchemaInfo> GetSchemaAsync(string subject, int version)
-    {
-        var registeredSchema = await _client.GetRegisteredSchemaAsync(subject, version);
-        return new AvroSchemaInfo
-        {
-            EntityType = typeof(object),
-            Type = SerializerType.Value,
-            SchemaId = registeredSchema.Id,
-            Version = registeredSchema.Version,
-            Subject = registeredSchema.Subject,
-            AvroSchema = registeredSchema.SchemaString,
-            RegisteredAt = DateTime.UtcNow,
-            LastUsed = DateTime.UtcNow,
-            UsageCount = 0
-        };
-    }
+  
 
     public async Task<IList<string>> GetAllSubjectsAsync()
     {

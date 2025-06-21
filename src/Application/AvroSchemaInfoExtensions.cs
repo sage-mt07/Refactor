@@ -35,10 +35,5 @@ namespace KsqlDsl.Application
             return "CompositeKey";
         }
 
-        public static string GetSummary(this AvroSchemaInfo schemaInfo)
-        {
-            var keyInfo = schemaInfo.IsCompositeKey() ? "CompositeKey" : schemaInfo.GetKeyTypeName();
-            return $"{schemaInfo.EntityType.Name} → {schemaInfo.TopicName} ({schemaInfo.GetStreamTableType()}, Key: {keyInfo})";
-        }
     }
 }
