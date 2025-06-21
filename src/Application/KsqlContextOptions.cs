@@ -4,12 +4,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-
+using Confluent.SchemaRegistry;
 namespace KsqlDsl.Application
 {
     public class KsqlContextOptions
     {
-        public ConfluentSchemaRegistry.ISchemaRegistryClient SchemaRegistryClient { get; set; } = null!;
+        public ISchemaRegistryClient SchemaRegistryClient { get; set; } = null!;
         public ILoggerFactory? LoggerFactory { get; set; }
         public bool EnableDebugLogging { get; set; } = false;
         public bool AutoRegisterSchemas { get; set; } = true;

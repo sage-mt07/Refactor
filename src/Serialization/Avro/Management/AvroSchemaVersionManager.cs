@@ -1,22 +1,20 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Confluent.SchemaRegistry;
+using KsqlDsl.Serialization.Avro.Core;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Text;
 using System.Threading.Tasks;
-using Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro.Management;
 
 public class AvroSchemaVersionManager
 {
-    private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
+    private readonly ISchemaRegistryClient _schemaRegistryClient;
     private readonly ILogger<AvroSchemaVersionManager>? _logger;
 
     public AvroSchemaVersionManager(
-        ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
+        ISchemaRegistryClient schemaRegistryClient,
         ILoggerFactory? loggerFactory = null)
     {
         _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
@@ -34,7 +32,7 @@ public class AvroSchemaVersionManager
             var topicName = GetTopicName(entityType);
             var subject = $"{topicName}-value";
 
-            var schemaObj = new ConfluentSchemaRegistry.Schema(newSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            var schemaObj = new Schema(newSchema, SchemaType.Avro);
             var isCompatible = await _schemaRegistryClient.IsCompatibleAsync(subject, schemaObj);
 
             _logger?.LogDebug("Schema upgrade compatibility check for {EntityType}: {Result}", entityType.Name, isCompatible);
@@ -69,7 +67,7 @@ public class AvroSchemaVersionManager
             }
 
             var subject = $"{topicName}-value";
-            var schemaObj = new ConfluentSchemaRegistry.Schema(newSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            var schemaObj = new Schema(newSchema, SchemaType.Avro);
             var newSchemaId = await _schemaRegistryClient.RegisterSchemaAsync(subject, schemaObj);
 
             _logger?.LogInformation("Schema upgraded successfully for {EntityType}: new ID {SchemaId}", entityType.Name, newSchemaId);

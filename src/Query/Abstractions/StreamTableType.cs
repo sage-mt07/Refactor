@@ -1,6 +1,6 @@
 ﻿namespace KsqlDsl.Query.Abstractions;
 
-internal enum StreamTableType
+public enum StreamTableType
 {
     Stream,
     Table

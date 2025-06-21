@@ -86,7 +86,7 @@ namespace KsqlDsl.Application
                 {
                     try
                     {
-                        var schemaInfo = await _schemaService.GetSchemaInfoAsync(entityType);
+                        var schemaInfo =  _schemaService.GetSchemaInfoAsync(entityType);
                         _schemaRepository.StoreSchemaInfo(schemaInfo);
                     }
                     catch (Exception ex)
@@ -105,13 +105,7 @@ namespace KsqlDsl.Application
                     }
                 }
 
-                // 4. キャッシュ事前ウォーミング（Tracing無効）
-                if (_options.EnableCachePreWarming)
-                {
-                    var allSchemas = _schemaRepository.GetAllSchemas();
-                    await _cache.PreWarmAsync(allSchemas);
-                    _logger?.LogDebug("Cache pre-warming completed");
-                }
+
 
                 var duration = DateTime.UtcNow - startTime;
                 _logger?.LogInformation(

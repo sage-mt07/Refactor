@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-
+using Confluent.SchemaRegistry;
 namespace KsqlDsl.Application
 {
     public class KsqlContextBuilder
@@ -22,13 +22,13 @@ namespace KsqlDsl.Application
             return this;
         }
 
-        public KsqlContextBuilder UseSchemaRegistry(ConfluentSchemaRegistry.SchemaRegistryConfig config)
+        public KsqlContextBuilder UseSchemaRegistry(SchemaRegistryConfig config)
         {
             _options.UseSchemaRegistry(config);
             return this;
         }
 
-        public KsqlContextBuilder UseSchemaRegistry(ConfluentSchemaRegistry.ISchemaRegistryClient client)
+        public KsqlContextBuilder UseSchemaRegistry(ISchemaRegistryClient client)
         {
             _options.SchemaRegistryClient = client;
             return this;

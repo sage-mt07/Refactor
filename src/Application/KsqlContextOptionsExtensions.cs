@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-
+using Confluent.SchemaRegistry;
 namespace KsqlDsl.Application
 {
     public static class KsqlContextOptionsExtensions
@@ -13,16 +13,16 @@ namespace KsqlDsl.Application
             this KsqlContextOptions options,
             string url)
         {
-            var config = new ConfluentSchemaRegistry.SchemaRegistryConfig { Url = url };
-            options.SchemaRegistryClient = new ConfluentSchemaRegistry.CachedSchemaRegistryClient(config);
+            var config = new SchemaRegistryConfig { Url = url };
+            options.SchemaRegistryClient = new CachedSchemaRegistryClient(config);
             return options;
         }
 
         public static KsqlContextOptions UseSchemaRegistry(
             this KsqlContextOptions options,
-            ConfluentSchemaRegistry.SchemaRegistryConfig config)
+            SchemaRegistryConfig config)
         {
-            options.SchemaRegistryClient = new ConfluentSchemaRegistry.CachedSchemaRegistryClient(config);
+            options.SchemaRegistryClient = new CachedSchemaRegistryClient(config);
             return options;
         }
 

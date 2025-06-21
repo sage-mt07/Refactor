@@ -157,12 +157,12 @@ namespace KsqlDsl.Serialization.Avro.Core
 
         private string GenerateKeySchema(Type keyType)
         {
-            return SchemaGenerator.GenerateKeySchema(keyType);
+            return UnifiedSchemaGenerator.GenerateKeySchema(keyType);
         }
 
         private string GenerateValueSchema<T>() where T : class
         {
-            return SchemaGenerator.GenerateSchema<T>();
+            return UnifiedSchemaGenerator.GenerateSchema<T>();
         }
 
         private ISerializer<object> CreatePrimitiveKeySerializer(Type keyType)
