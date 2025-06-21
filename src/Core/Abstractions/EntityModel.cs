@@ -5,7 +5,7 @@ using System.Reflection;
 
 namespace KsqlDsl.Core.Abstractions;
 
-internal class EntityModel
+public class EntityModel
 {
     public Type EntityType { get; set; } = null!;
 

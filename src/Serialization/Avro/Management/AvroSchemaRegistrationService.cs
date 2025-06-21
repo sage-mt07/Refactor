@@ -1,10 +1,13 @@
-﻿using KsqlDsl.Configuration;
-using KsqlDsl.Core.Abstractions;
+﻿// src/Serialization/Avro/Management/AvroSchemaRegistrationService.cs
+// インターフェース準拠修正版
+
+using KsqlDsl.Core.Extensions;
+using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
+using KsqlDsl.Serialization.Avro.Exceptions;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
@@ -23,22 +26,18 @@ namespace KsqlDsl.Serialization.Avro.Management
         {
             _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
             _loggerFactory = loggerFactory;
-            _logger = loggerFactory.CreateLoggerOrNull<AvroSchemaRegistrationService>();
-        }> _logger;
-        private readonly Dictionary<Type, AvroSchemaInfo> _registeredSchemas = new();
-
-        public AvroSchemaRegistrationService(
-            ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
-            ILogger<AvroSchemaRegistrationService> logger)
-        {
-            _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger = _loggerFactory.CreateLoggerOrNull<AvroSchemaRegistrationService>();
         }
 
+        /// <summary>
+        /// 全スキーマ登録（初期化パス = Monitoring無効）
+        /// </summary>
         public async Task RegisterAllSchemasAsync(IReadOnlyDictionary<Type, AvroEntityConfiguration> configurations)
         {
             var startTime = DateTime.UtcNow;
             var registrationTasks = new List<Task>();
+
+            _logger?.LogInformation("Schema registration started: {EntityCount} entities", configurations.Count);
 
             foreach (var (entityType, config) in configurations)
             {
@@ -48,23 +47,29 @@ namespace KsqlDsl.Serialization.Avro.Management
             await Task.WhenAll(registrationTasks);
 
             var duration = DateTime.UtcNow - startTime;
-            _logger.LogInformationWithLegacySupport(_loggerFactory, false,
+            _logger?.LogInformation(
                 "AVRO schema registration completed: {Count} entities in {Duration}ms",
                 configurations.Count, duration.TotalMilliseconds);
         }
 
+        /// <summary>
+        /// エンティティスキーマ登録（Tracing無効）
+        /// </summary>
         private async Task RegisterEntitySchemaAsync(Type entityType, AvroEntityConfiguration config)
         {
             try
             {
-                var topicName = config.TopicName ?? entityType.Name;
+                var topicName = config.GetEffectiveTopicName();
 
-                var keySchema = AvroSchemaGenerator.GenerateKeySchema(entityType, config);
-                var valueSchema = AvroSchemaGenerator.GenerateValueSchema(entityType, config);
+                // スキーマ生成（統一実装使用）
+                var keySchema = UnifiedSchemaGenerator.GenerateKeySchema(config);
+                var valueSchema = UnifiedSchemaGenerator.GenerateValueSchema(entityType, config);
 
+                // Schema Registry登録（Retry機能は上位で実装）
                 var keySchemaId = await RegisterSchemaAsync($"{topicName}-key", keySchema);
                 var valueSchemaId = await RegisterSchemaAsync($"{topicName}-value", valueSchema);
 
+                // 登録結果を保存
                 _registeredSchemas[entityType] = new AvroSchemaInfo
                 {
                     EntityType = entityType,
@@ -73,30 +78,43 @@ namespace KsqlDsl.Serialization.Avro.Management
                     ValueSchemaId = valueSchemaId,
                     KeySchema = keySchema,
                     ValueSchema = valueSchema,
-                    RegisteredAt = DateTime.UtcNow
+                    RegisteredAt = DateTime.UtcNow,
+                    KeyProperties = config.KeyProperties
                 };
 
-                _logger.LogDebugWithLegacySupport(_loggerFactory, false,
-                    "Schema registered: {EntityType} → {Topic} (Key: {KeyId}, Value: {ValueId})",
+                _logger?.LogDebug("Schema registered: {EntityType} → {Topic} (Key: {KeyId}, Value: {ValueId})",
                     entityType.Name, topicName, keySchemaId, valueSchemaId);
             }
             catch (Exception ex)
             {
-                _logger.LogErrorWithLegacySupport(ex, _loggerFactory, false,
-                    "Schema registration failed: {EntityType}", entityType.Name);
+                _logger?.LogError(ex, "Schema registration failed: {EntityType}", entityType.Name);
                 throw new AvroSchemaRegistrationException($"Failed to register schema for {entityType.Name}", ex);
             }
         }
 
+        /// <summary>
+        /// スキーマ登録（基本実装）
+        /// </summary>
         private async Task<int> RegisterSchemaAsync(string subject, string avroSchema)
         {
             var schema = new ConfluentSchemaRegistry.Schema(avroSchema, ConfluentSchemaRegistry.SchemaType.Avro);
             return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema);
         }
 
+        /// <summary>
+        /// 型指定でのスキーマ情報取得
+        /// </summary>
         public async Task<AvroSchemaInfo> GetSchemaInfoAsync<T>() where T : class
         {
-            var entityType = typeof(T);
+            await Task.CompletedTask;
+            return GetSchemaInfoAsync(typeof(T));
+        }
+
+        /// <summary>
+        /// Type指定でのスキーマ情報取得
+        /// </summary>
+        public AvroSchemaInfo GetSchemaInfoAsync(Type entityType)
+        {
             if (_registeredSchemas.TryGetValue(entityType, out var schemaInfo))
             {
                 return schemaInfo;
@@ -104,6 +122,9 @@ namespace KsqlDsl.Serialization.Avro.Management
             throw new InvalidOperationException($"Schema not registered for type: {entityType.Name}");
         }
 
+        /// <summary>
+        /// 全登録スキーマ取得
+        /// </summary>
         public async Task<List<AvroSchemaInfo>> GetAllRegisteredSchemasAsync()
         {
             await Task.CompletedTask;

@@ -1,6 +1,4 @@
-﻿using KsqlDsl.Messaging.Abstractions;
-using KsqlDsl.Monitoring.Abstractions.Models;
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace KsqlDsl.Messaging.Bus;
@@ -8,10 +6,7 @@ namespace KsqlDsl.Messaging.Bus;
 public class BusDiagnostics
 {
     public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
-    public MessageBusHealthStatus HealthStatus { get; set; } = new();
-    public PoolStatistics ProducerPoolStats { get; set; } = new();
-    public PoolStatistics ConsumerPoolStats { get; set; } = new();
-    public SubscriptionStatistics SubscriptionStats { get; set; } = new();
+
     public Dictionary<string, object> PerformanceMetrics { get; set; } = new();
     public Dictionary<string, object> SystemInfo { get; set; } = new();
 
@@ -42,18 +37,5 @@ public static class PerformanceStatsExtensions
         };
     }
 
-    public static PoolStatistics ConvertToPoolStats(this ConsumerPerformanceStats stats)
-    {
-        return new PoolStatistics
-        {
-            TotalPools = 1,
-            ActiveResources = stats.ActiveConsumers,
-            PooledResources = 0,
-            TotalRentCount = stats.TotalMessages,
-            TotalReturnCount = stats.ProcessedMessages,
-            TotalDiscardedCount = stats.FailedMessages,
-            AverageUtilization = stats.ThroughputPerSecond > 0 ? 0.8 : 0.0,
-            LastUpdated = stats.LastUpdated
-        };
-    }
+   
 }

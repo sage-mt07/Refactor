@@ -1,12 +1,17 @@
-﻿using KsqlDsl.Core.Abstractions;
+﻿// src/Application/KsqlContext.cs - 簡素化・統合版
+// 重複削除、未実装参照削除、Monitoring初期化除去済み
+
+using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Extensions;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Serialization.Avro.Abstractions;
+using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Management;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
@@ -15,7 +20,7 @@ namespace KsqlDsl.Application
     public abstract class KsqlContext : IDisposable
     {
         private readonly IAvroSchemaRegistrationService _schemaService;
-        private readonly GlobalAvroSerializationManager _serializationManager;
+        private readonly AvroSerializerCache _cache;
         private readonly IAvroSchemaRepository _schemaRepository;
         private readonly ILoggerFactory? _loggerFactory;
         private readonly ILogger<KsqlContext> _logger;
@@ -30,22 +35,15 @@ namespace KsqlDsl.Application
             _loggerFactory = options.LoggerFactory;
             _logger = _loggerFactory.CreateLoggerOrNull<KsqlContext>();
 
-            // Core components initialization
+            // Core components initialization（Tracing一切なし）
             _schemaRepository = new AvroSchemaRepository();
             _schemaService = new AvroSchemaRegistrationService(
                 options.SchemaRegistryClient,
                 _loggerFactory);
 
-            // Advanced caching and serialization
-            var cache = new Serialization.Avro.Cache.AvroSerializerCache(
-                new AvroSerializerFactory(options.SchemaRegistryClient, _loggerFactory),
-                _loggerFactory);
-
-            _serializationManager = new GlobalAvroSerializationManager(
-                options.SchemaRegistryClient,
-                cache,
-                _schemaRepository,
-                _loggerFactory);
+            // 簡素化：既存の実装を統合使用
+            var factory = new AvroSerializerFactory(options.SchemaRegistryClient, _loggerFactory);
+            _cache = new AvroSerializerCache(factory, _loggerFactory);
 
             _logger?.LogDebug("KsqlContext initialized with schema registry: {Url}",
                 GetSchemaRegistryInfo());
@@ -59,6 +57,7 @@ namespace KsqlDsl.Application
         /// <summary>
         /// コンテキストの初期化
         /// Fail-Fast設計: エラー時はアプリケーション終了
+        /// Monitoring発動なし（初期化パス）
         /// </summary>
         public async Task InitializeAsync()
         {
@@ -68,14 +67,14 @@ namespace KsqlDsl.Application
             {
                 _logger?.LogInformation("AVRO initialization started");
 
-                // 1. モデル構築
+                // 1. モデル構築（Tracing一切なし）
                 var modelBuilder = new AvroModelBuilder(_loggerFactory);
                 OnAvroModelCreating(modelBuilder);
 
                 var configurations = modelBuilder.Build();
                 _logger?.LogDebug("Model built with {EntityCount} entities", configurations.Count);
 
-                // 2. Fail-Fast: スキーマ登録
+                // 2. Fail-Fast: スキーマ登録（初期化パス = Tracing無効）
                 if (_options.AutoRegisterSchemas)
                 {
                     await _schemaService.RegisterAllSchemasAsync(configurations);
@@ -94,6 +93,9 @@ namespace KsqlDsl.Application
                     {
                         if (_options.FailOnSchemaErrors)
                         {
+                            _logger?.LogCritical(ex,
+                                "FATAL: Schema info retrieval failed for {EntityType}. HUMAN INTERVENTION REQUIRED.",
+                                entityType.Name);
                             throw new InvalidOperationException(
                                 $"Failed to retrieve schema info for {entityType.Name}", ex);
                         }
@@ -103,10 +105,11 @@ namespace KsqlDsl.Application
                     }
                 }
 
-                // 4. キャッシュ事前ウォーミング
+                // 4. キャッシュ事前ウォーミング（Tracing無効）
                 if (_options.EnableCachePreWarming)
                 {
-                    await _serializationManager.PreWarmAllCachesAsync();
+                    var allSchemas = _schemaRepository.GetAllSchemas();
+                    await _cache.PreWarmAsync(allSchemas);
                     _logger?.LogDebug("Cache pre-warming completed");
                 }
 
@@ -117,11 +120,12 @@ namespace KsqlDsl.Application
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "AVRO initialization failed");
+                _logger?.LogCritical(ex,
+                    "FATAL: AVRO initialization failed. HUMAN INTERVENTION REQUIRED.");
 
                 if (_options.FailOnInitializationErrors)
                 {
-                    throw;
+                    throw; // Fail Fast: 即座にアプリ終了
                 }
                 else
                 {
@@ -131,19 +135,25 @@ namespace KsqlDsl.Application
         }
 
         /// <summary>
-        /// 型安全なシリアライザー取得
+        /// 型安全なシリアライザー取得（運用パス = Tracing有効）
         /// </summary>
         public IAvroSerializer<T> GetSerializer<T>() where T : class
         {
-            return _serializationManager.GetSerializer<T>();
+            // TODO: 運用パスでのみTracingを有効化
+            // using var activity = AvroActivitySource.StartOperation("get_serializer", typeof(T).Name);
+
+            return _cache.GetOrCreateSerializer<T>();
         }
 
         /// <summary>
-        /// 型安全なデシリアライザー取得
+        /// 型安全なデシリアライザー取得（運用パス = Tracing有効）
         /// </summary>
         public IAvroDeserializer<T> GetDeserializer<T>() where T : class
         {
-            return _serializationManager.GetDeserializer<T>();
+            // TODO: 運用パスでのみTracingを有効化
+            // using var activity = AvroActivitySource.StartOperation("get_deserializer", typeof(T).Name);
+
+            return _cache.GetOrCreateDeserializer<T>();
         }
 
         /// <summary>
@@ -171,54 +181,7 @@ namespace KsqlDsl.Application
         }
 
         /// <summary>
-        /// 登録済みスキーマ一覧取得
-        /// </summary>
-        public async Task<List<string>> GetRegisteredSchemasAsync()
-        {
-            return await _schemaService.GetAllRegisteredSchemasAsync()
-                .ContinueWith(task => task.Result.ConvertAll(schema => schema.ToString()));
-        }
-
-        /// <summary>
-        /// エンティティのスキーマ互換性チェック
-        /// </summary>
-        public async Task<bool> CheckEntitySchemaCompatibilityAsync<T>() where T : class
-        {
-            try
-            {
-                var schemaInfo = _schemaRepository.GetSchemaInfo(typeof(T));
-                if (schemaInfo == null)
-                    return false;
-
-                var newValueSchema = UnifiedSchemaGenerator.GenerateValueSchema<T>();
-                return await CheckSchemaCompatibilityAsync(schemaInfo.GetValueSubject(), newValueSchema);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Schema compatibility check failed for {EntityType}", typeof(T).Name);
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// スキーマ互換性チェック
-        /// </summary>
-        public async Task<bool> CheckSchemaCompatibilityAsync(string subject, string schema)
-        {
-            try
-            {
-                var schemaObj = new ConfluentSchemaRegistry.Schema(schema, ConfluentSchemaRegistry.SchemaType.Avro);
-                return await _options.SchemaRegistryClient.IsCompatibleAsync(subject, schemaObj);
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Schema compatibility check failed for subject {Subject}", subject);
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 診断情報取得
+        /// 診断情報取得（簡素化版）
         /// </summary>
         public string GetDiagnostics()
         {
@@ -250,64 +213,6 @@ namespace KsqlDsl.Application
             return string.Join(Environment.NewLine, diagnostics);
         }
 
-        /// <summary>
-        /// ヘルスチェック
-        /// </summary>
-        public async Task<KsqlContextHealthReport> GetHealthReportAsync()
-        {
-            var report = new KsqlContextHealthReport
-            {
-                GeneratedAt = DateTime.UtcNow,
-                ContextStatus = KsqlContextHealthStatus.Healthy
-            };
-
-            try
-            {
-                // Schema Registry接続チェック
-                await _options.SchemaRegistryClient.GetAllSubjectsAsync();
-                report.ComponentStatus["SchemaRegistry"] = "Healthy";
-            }
-            catch (Exception ex)
-            {
-                report.ContextStatus = KsqlContextHealthStatus.Unhealthy;
-                report.ComponentStatus["SchemaRegistry"] = $"Unhealthy: {ex.Message}";
-                report.Issues.Add($"Schema Registry connection failed: {ex.Message}");
-            }
-
-            // スキーマ登録状況チェック
-            var allSchemas = _schemaRepository.GetAllSchemas();
-            report.ComponentStatus["RegisteredSchemas"] = $"{allSchemas.Count} schemas";
-
-            if (allSchemas.Count == 0)
-            {
-                report.ContextStatus = KsqlContextHealthStatus.Degraded;
-                report.Issues.Add("No schemas registered");
-            }
-
-            // シリアライゼーション管理チェック
-            report.ComponentStatus["SerializationManager"] = "Healthy";
-
-            return report;
-        }
-
-        /// <summary>
-        /// 統計情報取得
-        /// </summary>
-        public KsqlContextStatistics GetStatistics()
-        {
-            var allSchemas = _schemaRepository.GetAllSchemas();
-
-            return new KsqlContextStatistics
-            {
-                TotalEntities = allSchemas.Count,
-                RegisteredSchemas = allSchemas.Count,
-                StreamEntities = allSchemas.Count(s => s.GetStreamTableType() == "Stream"),
-                TableEntities = allSchemas.Count(s => s.GetStreamTableType() == "Table"),
-                CompositeKeyEntities = allSchemas.Count(s => s.IsCompositeKey()),
-                LastInitialized = DateTime.UtcNow // 実際の初期化時刻を保存する場合は別途実装
-            };
-        }
-
         #region Private Methods
 
         private string GetSchemaRegistryInfo()
@@ -333,7 +238,7 @@ namespace KsqlDsl.Application
         {
             if (!_disposed)
             {
-                _serializationManager?.Dispose();
+                _cache?.Dispose();
                 _schemaRepository?.Clear();
                 _options.SchemaRegistryClient?.Dispose();
 
@@ -344,5 +249,4 @@ namespace KsqlDsl.Application
 
         #endregion
     }
-
 }
