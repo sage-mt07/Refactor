@@ -223,11 +223,26 @@ namespace KsqlDsl.Messaging.Consumers.Core
                 throw new InvalidOperationException($"Failed to deserialize message to type {typeof(TValue).Name}");
 
             var keyBytes = consumeResult.Message.Key as byte[];
-            var key = _keyDeserializer.Deserialize(
+            var keyObject = _keyDeserializer.Deserialize(
                 keyBytes ?? Array.Empty<byte>(),
                 keyBytes == null,
                 new SerializationContext(MessageComponentType.Key, TopicName));
 
+            TKey key;
+            if (keyObject is TKey typedKey)
+            {
+                key = typedKey;
+            }
+            else if (keyObject == null && !typeof(TKey).IsValueType)
+            {
+                key = default(TKey)!; // 参照型でnullの場合
+            }
+            else
+            {
+                // 型変換失敗時の例外
+                throw new InvalidOperationException(
+                    $"Failed to convert key from {keyObject?.GetType()?.Name ?? "null"} to {typeof(TKey).Name}");
+            }
             return new KafkaMessage<TValue, TKey>
             {
                 Value = message,

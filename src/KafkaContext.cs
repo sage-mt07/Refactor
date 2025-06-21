@@ -5,12 +5,9 @@ using KsqlDsl.Core.Context;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Messaging.Consumers;
 using KsqlDsl.Messaging.Producers;
-using KsqlDsl.Messaging.Producers.Exception;
-using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Management;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -50,12 +47,12 @@ namespace KsqlDsl
             _producerManager = new KafkaProducerManager(
               null!, // TODO: DI完了後に修正
               Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
-              Options.LoggerFactory);
+              null);
 
             _consumerManager = new KafkaConsumerManager(
                 null!, // TODO: DI完了後に修正
                 Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
-                Options.LoggerFactory);
+                null);
         }
 
         /// <summary>
@@ -76,13 +73,7 @@ namespace KsqlDsl
             return _modelBuilder.Value;
         }
 
-        public new async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
-        {
-            // Core層のモデル構築とスキーマ登録
-            var modelBuilder = GetModelBuilder();
-            await Task.Delay(1, cancellationToken);
 
-        }
 
 
 
@@ -129,7 +120,7 @@ namespace KsqlDsl
         }
 
         public EventSetWithServices(KafkaContext context, EntityModel entityModel, System.Linq.Expressions.Expression expression)
-            : base(context, entityModel, expression)
+            : base(context, entityModel)
         {
             _kafkaContext = context;
         }
@@ -161,67 +152,9 @@ namespace KsqlDsl
             }
         }
 
-        /// <summary>
-        /// Core抽象化実装：Producer一括機能
-        /// </summary>
-        protected override async Task SendEntitiesAsync(IEnumerable<TValue> entities, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var producerManager = _kafkaContext.GetProducerManager();
+       
 
-                var batchContext = new KafkaMessageContext
-                {
-                    MessageId = Guid.NewGuid().ToString(),
-                    Tags = new Dictionary<string, object>
-                    {
-                        ["entity_type"] = typeof(T).Name,
-                        ["method"] = "Core.SendEntitiesAsync",
-                        ["batch_size"] = entities.Count()
-                    }
-                };
-
-                try
-                {
-                    await producerManager.SendRangeAsync(entities, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(TValue).Name}", ex);
-                }
-
-            }
-            catch (Exception ex) when (!(ex is KafkaBatchSendException))
-            {
-                throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(TValue).Name}", ex);
-            }
-        }
-
-        /// <summary>
-        /// Core抽象化実装：Consumer機能
-        /// </summary>
-        protected override List<T> ExecuteQuery(string ksqlQuery)
-        {
-            try
-            {
-                // Phase2でConsumerManagerに移行予定
-                // 現在は新しいConsumerManager使用
-                var consumerManager = _kafkaContext.GetConsumerManager();
-
-                // 一時的な実装：KSQLクエリを実行してリストを返す
-                // 実際の実装では、KSQLクエリをConsumerで実行する必要がある
-                Console.WriteLine($"[INFO] 旧ConsumerService廃止のため、Core層統合Consumerに移行中... Query: {ksqlQuery}");
-
-                // 簡略実装：現在は空のリストを返す
-                // TODO: Phase2でConsumerManagerによる実装に置き換える
-                return new List<T>();
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(
-                    $"Core層統合: クエリ実行は移行中です。Phase2完了後に新APIを使用してください。原因: {ex.Message}", ex);
-            }
-        }
+       
     }
 
 }

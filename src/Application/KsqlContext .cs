@@ -34,50 +34,38 @@ namespace KsqlDsl.Application;
 public abstract class KafkaContext : KafkaContextCore
 {
     // 簡素化Manager（Pool削除版）
-    private readonly Lazy<KafkaProducerManager> _producerManager;
-    private readonly Lazy<KafkaConsumerManager> _consumerManager;
+    private readonly KafkaProducerManager _producerManager;
+    private readonly KafkaConsumerManager _consumerManager;
     private AvroSchemaRegistrationService? _schemaRegistrationService;
 
     protected KafkaContext() : base()
     {
-        _producerManager = new Lazy<KafkaProducerManager>(() =>
-        {
-            Console.WriteLine("[INFO] 簡素化統合: KafkaProducerManager初期化");
-            return new KafkaProducerManager(
-                null!, // EnhancedAvroSerializerManager - DIから注入
-                Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
-                Options.LoggerFactory);
-        });
+        _producerManager = new KafkaProducerManager(
+            null!, // EnhancedAvroSerializerManager - DIから注入
+            Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+            null   // LoggerFactory削除
+        );
 
-        _consumerManager = new Lazy<KafkaConsumerManager>(() =>
-        {
-            Console.WriteLine("[INFO] 簡素化統合: KafkaConsumerManager初期化");
-            return new KafkaConsumerManager(
-                null!, // EnhancedAvroSerializerManager - DIから注入
-                Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
-                Options.LoggerFactory);
-        });
+        _consumerManager = new KafkaConsumerManager(
+            null!, // EnhancedAvroSerializerManager - DIから注入  
+            Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+            null   // LoggerFactory削除
+        );
     }
 
     protected KafkaContext(KafkaContextOptions options) : base(options)
     {
-        _producerManager = new Lazy<KafkaProducerManager>(() =>
-        {
-            Console.WriteLine("[INFO] 簡素化統合: KafkaProducerManager初期化");
-            return new KafkaProducerManager(
-                null!, // EnhancedAvroSerializerManager - DIから注入
-                Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
-                Options.LoggerFactory);
-        });
+        _producerManager = new KafkaProducerManager(
+            null!, // EnhancedAvroSerializerManager - DIから注入
+            Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+            null   // LoggerFactory削除
+        );
 
-        _consumerManager = new Lazy<KafkaConsumerManager>(() =>
-        {
-            Console.WriteLine("[INFO] 簡素化統合: KafkaConsumerManager初期化");
-            return new KafkaConsumerManager(
-                null!, // EnhancedAvroSerializerManager - DIから注入
-                Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
-                Options.LoggerFactory);
-        });
+        _consumerManager = new KafkaConsumerManager(
+            null!, // EnhancedAvroSerializerManager - DIから注入  
+            Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+            null   // LoggerFactory削除
+        );
     }
 
     /// <summary>
@@ -89,62 +77,10 @@ public abstract class KafkaContext : KafkaContextCore
     }
 
     // 簡素化Manager取得
-    internal KafkaProducerManager GetProducerManager() => _producerManager.Value;
-    internal KafkaConsumerManager GetConsumerManager() => _consumerManager.Value;
+    internal KafkaProducerManager GetProducerManager() => _producerManager;
+    internal KafkaConsumerManager GetConsumerManager() => _consumerManager;
 
-    public new async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
-    {
-        if (Options.EnableDebugLogging)
-        {
-            Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: 簡素化統合インフラ構築開始");
-        }
-
-        // スキーマ自動登録（簡素化）
-        if (Options.EnableAutoSchemaRegistration)
-        {
-            if (Options.CustomSchemaRegistryClient != null)
-            {
-                _schemaRegistrationService = new AvroSchemaRegistrationService(
-                   Options.CustomSchemaRegistryClient,
-                   Options.LoggerFactory);
-            }
-            else
-            {
-                var logger = Options.LoggerFactory.CreateLoggerOrNull<KafkaContext>();
-                logger.LogWarningWithLegacySupport(
-                    Options.LoggerFactory, Options.EnableDebugLogging,
-                    "CustomSchemaRegistryClient is null, skipping schema registration");
-            }
-
-            try
-            {
-                Console.WriteLine("[INFO] 簡素化統合: Avroスキーマ自動登録開始");
-                var entityModels = GetEntityModels();
-                var avroConfigurations = ConvertToAvroConfigurations(entityModels);
-                await _schemaRegistrationService.RegisterAllSchemasAsync(avroConfigurations);
-                Console.WriteLine("[INFO] 簡素化統合: Avroスキーマ自動登録完了");
-            }
-            catch (Exception ex)
-            {
-                if (Options.ValidationMode == ValidationMode.Strict)
-                {
-                    throw new InvalidOperationException($"簡素化統合: スキーマ自動登録失敗 - {ex.Message}", ex);
-                }
-                else
-                {
-                    Console.WriteLine($"[WARNING] 簡素化統合: スキーマ自動登録失敗（続行） - {ex.Message}");
-                }
-            }
-        }
-
-        await Task.Delay(1, cancellationToken);
-
-        if (Options.EnableDebugLogging)
-        {
-            Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: 簡素化統合インフラ構築完了");
-            Console.WriteLine(GetSimplifiedDiagnostics());
-        }
-    }
+ 
     private IReadOnlyDictionary<Type, AvroEntityConfiguration> ConvertToAvroConfigurations(
     Dictionary<Type, EntityModel> entityModels)
     {
@@ -164,41 +100,14 @@ public abstract class KafkaContext : KafkaContextCore
 
         return avroConfigs;
     }
-    public string GetSimplifiedDiagnostics()
-    {
-        var diagnostics = new List<string>
-        {
-            "=== 簡素化統合診断情報 ===",
-            $"Base Context: {base.GetDiagnostics()}",
-            "",
-            "=== 簡素化Manager状態 ===",
-            $"ProducerManager: {(_producerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
-            $"ConsumerManager: {(_consumerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
-            $"SchemaRegistration: {(_schemaRegistrationService != null ? "有効" : "無効")}",
-            "",
-            "=== Pool削除確認 ===",
-            "✅ ProducerPool削除済み",
-            "✅ ConsumerPool削除済み",
-            "✅ メトリクス削除済み - Confluent.Kafka委譲",
-            "✅ 複雑性削除完了"
-        };
 
-        return string.Join(Environment.NewLine, diagnostics);
-    }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
-            // 簡素化Manager破棄
-            if (_producerManager.IsValueCreated)
-                _producerManager.Value.Dispose();
-
-            if (_consumerManager.IsValueCreated)
-                _consumerManager.Value.Dispose();
-
-            if (Options.EnableDebugLogging)
-                Console.WriteLine("[DEBUG] KafkaContext.Dispose: 簡素化統合リソース解放完了");
+            _producerManager?.Dispose();
+            _consumerManager?.Dispose();
         }
 
         base.Dispose(disposing);
@@ -225,7 +134,7 @@ internal class EventSetWithSimplifiedServices<T> : EventSet<T> where T : class
     }
 
     public EventSetWithSimplifiedServices(KafkaContext context, EntityModel entityModel, System.Linq.Expressions.Expression expression)
-        : base(context, entityModel, expression)
+        : base(context, entityModel)
     {
         _kafkaContext = context;
     }
@@ -245,48 +154,5 @@ internal class EventSetWithSimplifiedServices<T> : EventSet<T> where T : class
             throw new InvalidOperationException($"簡素化統合: Entity送信失敗 - {typeof(T).Name}", ex);
         }
     }
-
-    /// <summary>
-    /// Core抽象化実装：Producer一括機能（簡素化）
-    /// </summary>
-    protected override async Task SendEntitiesAsync(IEnumerable<T> entities, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var producerManager = _kafkaContext.GetProducerManager();
-            await producerManager.SendRangeAsync(entities, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"簡素化統合: Entity一括送信失敗 - {typeof(T).Name}", ex);
-        }
-    }
-
-    /// <summary>
-    /// Core抽象化実装：Consumer機能（簡素化）
-    /// </summary>
-    protected override List<T> ExecuteQuery(string ksqlQuery)
-    {
-        try
-        {
-            var consumerManager = _kafkaContext.GetConsumerManager();
-
-            Console.WriteLine($"[INFO] 簡素化統合: KSQL実行移行中... Query: {ksqlQuery}");
-
-            // 簡略実装：Pull Query風の取得
-            var options = new KafkaFetchOptions
-            {
-                MaxRecords = 100,
-                Timeout = TimeSpan.FromSeconds(30)
-            };
-
-            var task = consumerManager.FetchAsync<T>(options, CancellationToken.None);
-            return task.GetAwaiter().GetResult();
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"簡素化統合: クエリ実行は移行中です。新APIを使用してください。原因: {ex.Message}", ex);
-        }
-    }
+   
 }
