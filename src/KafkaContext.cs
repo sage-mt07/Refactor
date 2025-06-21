@@ -3,7 +3,6 @@ using KsqlDsl.Configuration;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Context;
 using KsqlDsl.Core.Modeling;
-using KsqlDsl.Messaging.Configuration;
 using KsqlDsl.Messaging.Consumers;
 using KsqlDsl.Messaging.Producers;
 using KsqlDsl.Messaging.Producers.Exception;

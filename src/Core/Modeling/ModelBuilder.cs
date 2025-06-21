@@ -1,103 +1,19 @@
 ﻿using KsqlDsl.Configuration;
-using KsqlDsl.Configuration.Validation;
 using KsqlDsl.Core.Abstractions;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 
 namespace KsqlDsl.Core.Modeling;
-
-public class ModelBuilder
+internal class ModelBuilder
 {
     private readonly Dictionary<Type, EntityModel> _entityModels = new();
-    private readonly ValidationService _validationService;
-    private bool _isBuilt = false;
+    private readonly ValidationMode _validationMode;
 
     public ModelBuilder(ValidationMode validationMode = ValidationMode.Strict)
     {
-        _validationService = new ValidationService(validationMode);
-    }
-
-    public EntityModelBuilder<T> Event<T>() where T : class
-    {
-        var entityType = typeof(T);
-
-        if (_entityModels.ContainsKey(entityType))
-        {
-            throw new InvalidOperationException($"エンティティ {entityType.Name} は既に登録済みです。");
-        }
-
-        var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
-        var allProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
-
-        Array.Sort(keyProperties, (p1, p2) =>
-        {
-            var order1 = p1.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
-            var order2 = p2.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
-            return order1.CompareTo(order2);
-        });
-
-        var validationResult = _validationService.ValidateEntity(entityType);
-
-        var entityModel = new EntityModel
-        {
-            EntityType = entityType,
-            TopicAttribute = topicAttribute,
-            KeyProperties = keyProperties,
-            AllProperties = allProperties,
-            ValidationResult = validationResult
-        };
-
-        _entityModels[entityType] = entityModel;
-        return new EntityModelBuilder<T>(entityModel);
-    }
-
-    // ✅ 修正: スキーマ登録の責任を上位層に移譲
-    public async Task BuildAsync()
-    {
-        if (_isBuilt) return;
-
-        var validationResult = ValidateAllEntities();
-
-        if (!validationResult.IsValid)
-        {
-            var errorMessage = "モデル構築に失敗しました:" + Environment.NewLine;
-            errorMessage += string.Join(Environment.NewLine, validationResult.Errors);
-            throw new InvalidOperationException(errorMessage);
-        }
-
-        // Core層では基本検証のみ実行
-        // スキーマ登録は上位層（Infrastructure/Messaging層）の責任
-
-        _isBuilt = true;
-    }
-
-    public void Build()
-    {
-        if (_isBuilt) return;
-
-        var validationResult = ValidateAllEntities();
-
-        if (!validationResult.IsValid)
-        {
-            var errorMessage = "モデル構築に失敗しました:" + Environment.NewLine;
-            errorMessage += string.Join(Environment.NewLine, validationResult.Errors);
-            throw new InvalidOperationException(errorMessage);
-        }
-
-        _isBuilt = true;
-    }
-
-    public Dictionary<Type, EntityModel> GetEntityModels()
-    {
-        return new Dictionary<Type, EntityModel>(_entityModels);
-    }
-
-    public EntityModel? GetEntityModel(Type entityType)
-    {
-        return _entityModels.TryGetValue(entityType, out var model) ? model : null;
+        _validationMode = validationMode;
     }
 
     public EntityModel? GetEntityModel<T>() where T : class
@@ -105,47 +21,171 @@ public class ModelBuilder
         return GetEntityModel(typeof(T));
     }
 
-    public ValidationResult ValidateAllEntities()
+    public EntityModel? GetEntityModel(Type entityType)
     {
-        var overallResult = new ValidationResult { IsValid = true };
+        _entityModels.TryGetValue(entityType, out var model);
+        return model;
+    }
 
-        foreach (var entityModel in _entityModels.Values)
-        {
-            if (entityModel.ValidationResult == null) continue;
+    public void AddEntityModel<T>() where T : class
+    {
+        AddEntityModel(typeof(T));
+    }
 
-            if (!entityModel.ValidationResult.IsValid)
-            {
-                overallResult.IsValid = false;
-            }
+    public void AddEntityModel(Type entityType)
+    {
+        if (_entityModels.ContainsKey(entityType))
+            return;
 
-            overallResult.Errors.AddRange(entityModel.ValidationResult.Errors);
-            overallResult.Warnings.AddRange(entityModel.ValidationResult.Warnings);
-            overallResult.AutoCompletedSettings.AddRange(entityModel.ValidationResult.AutoCompletedSettings);
-        }
+        var entityModel = CreateEntityModelFromType(entityType);
+        _entityModels[entityType] = entityModel;
+    }
 
-        return overallResult;
+    public Dictionary<Type, EntityModel> GetAllEntityModels()
+    {
+        return new Dictionary<Type, EntityModel>(_entityModels);
     }
 
     public string GetModelSummary()
     {
         if (_entityModels.Count == 0)
-            return "登録済みエンティティ: なし";
+            return "ModelBuilder: No entities configured";
 
-        var summary = new List<string> { $"登録済みエンティティ: {_entityModels.Count}件" };
+        var summary = new List<string>
+            {
+                $"ModelBuilder: {_entityModels.Count} entities configured",
+                $"Validation Mode: {_validationMode}",
+                ""
+            };
 
-        foreach (var entityModel in _entityModels.Values)
+        foreach (var (entityType, model) in _entityModels.OrderBy(x => x.Key.Name))
         {
-            var entityName = entityModel.EntityType.Name;
-            var topicName = entityModel.TopicAttribute?.TopicName ?? $"{entityName} (自動生成)";
-            var keyCount = entityModel.KeyProperties.Length;
-            var propCount = entityModel.AllProperties.Length;
-            var validStatus = entityModel.IsValid ? "✅" : "❌";
+            var status = model.IsValid ? "✅" : "❌";
+            summary.Add($"{status} {entityType.Name} → {model.GetTopicName()} ({model.StreamTableType}, Keys: {model.KeyProperties.Length})");
 
-            summary.Add($"  {validStatus} {entityName} → Topic: {topicName}, Keys: {keyCount}, Props: {propCount}");
+            if (model.ValidationResult != null && !model.ValidationResult.IsValid)
+            {
+                foreach (var error in model.ValidationResult.Errors)
+                {
+                    summary.Add($"   Error: {error}");
+                }
+            }
+
+            if (model.ValidationResult != null && model.ValidationResult.Warnings.Count > 0)
+            {
+                foreach (var warning in model.ValidationResult.Warnings)
+                {
+                    summary.Add($"   Warning: {warning}");
+                }
+            }
         }
 
         return string.Join(Environment.NewLine, summary);
     }
 
-    public bool IsBuilt => _isBuilt;
+    public bool ValidateAllModels()
+    {
+        bool allValid = true;
+
+        foreach (var (entityType, model) in _entityModels)
+        {
+            var validation = ValidateEntityModel(entityType, model);
+            model.ValidationResult = validation;
+
+            if (!validation.IsValid)
+            {
+                allValid = false;
+                if (_validationMode == ValidationMode.Strict)
+                {
+                    throw new InvalidOperationException($"Entity model validation failed for {entityType.Name}: {string.Join(", ", validation.Errors)}");
+                }
+            }
+        }
+
+        return allValid;
+    }
+
+    private EntityModel CreateEntityModelFromType(Type entityType)
+    {
+        var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
+        var allProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
+
+        // Key プロパティをOrder順にソート
+        Array.Sort(keyProperties, (p1, p2) =>
+        {
+            var order1 = p1.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+            var order2 = p2.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+            return order1.CompareTo(order2);
+        });
+
+        var model = new EntityModel
+        {
+            EntityType = entityType,
+            TopicAttribute = topicAttribute,
+            AllProperties = allProperties,
+            KeyProperties = keyProperties
+        };
+
+        // 検証実行
+        model.ValidationResult = ValidateEntityModel(entityType, model);
+
+        return model;
+    }
+
+    private ValidationResult ValidateEntityModel(Type entityType, EntityModel model)
+    {
+        var result = new ValidationResult { IsValid = true };
+
+        // エンティティ型の基本検証
+        if (!entityType.IsClass || entityType.IsAbstract)
+        {
+            result.IsValid = false;
+            result.Errors.Add($"Entity type {entityType.Name} must be a concrete class");
+        }
+
+        // Topic属性の検証
+        if (model.TopicAttribute == null)
+        {
+            if (_validationMode == ValidationMode.Strict)
+            {
+                result.IsValid = false;
+                result.Errors.Add($"Entity {entityType.Name} must have [Topic] attribute");
+            }
+            else
+            {
+                result.Warnings.Add($"Entity {entityType.Name} does not have [Topic] attribute, using class name as topic");
+            }
+        }
+
+        // プロパティの検証
+        foreach (var property in model.AllProperties)
+        {
+            if (!IsValidPropertyType(property.PropertyType))
+            {
+                result.Warnings.Add($"Property {property.Name} has potentially unsupported type {property.PropertyType.Name}");
+            }
+        }
+
+        // キープロパティの検証
+        if (model.KeyProperties.Length == 0)
+        {
+            result.Warnings.Add($"Entity {entityType.Name} has no [Key] properties, will be treated as Stream");
+        }
+
+        return result;
+    }
+
+    private bool IsValidPropertyType(Type propertyType)
+    {
+        var underlyingType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+
+        return underlyingType.IsPrimitive ||
+               underlyingType == typeof(string) ||
+               underlyingType == typeof(decimal) ||
+               underlyingType == typeof(DateTime) ||
+               underlyingType == typeof(DateTimeOffset) ||
+               underlyingType == typeof(Guid) ||
+               underlyingType == typeof(byte[]);
+    }
 }
