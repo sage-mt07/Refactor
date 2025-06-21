@@ -36,18 +36,15 @@ public abstract class KafkaContext : KafkaContextCore
     // 簡素化Manager（Pool削除版）
     private readonly KafkaProducerManager _producerManager;
     private readonly KafkaConsumerManager _consumerManager;
-    private AvroSchemaRegistrationService? _schemaRegistrationService;
 
     protected KafkaContext() : base()
     {
         _producerManager = new KafkaProducerManager(
-            null!, // EnhancedAvroSerializerManager - DIから注入
             Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
             null   // LoggerFactory削除
         );
 
         _consumerManager = new KafkaConsumerManager(
-            null!, // EnhancedAvroSerializerManager - DIから注入  
             Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
             null   // LoggerFactory削除
         );
@@ -56,13 +53,11 @@ public abstract class KafkaContext : KafkaContextCore
     protected KafkaContext(KafkaContextOptions options) : base(options)
     {
         _producerManager = new KafkaProducerManager(
-            null!, // EnhancedAvroSerializerManager - DIから注入
             Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
             null   // LoggerFactory削除
         );
 
         _consumerManager = new KafkaConsumerManager(
-            null!, // EnhancedAvroSerializerManager - DIから注入  
             Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
             null   // LoggerFactory削除
         );

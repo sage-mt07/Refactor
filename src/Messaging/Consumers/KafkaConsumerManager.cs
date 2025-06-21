@@ -12,48 +12,52 @@ using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Messaging.Consumers
 {
     /// <summary>
-    /// 簡素化Consumer管理 - Pool削除、直接管理
-    /// 設計理由: EF風API、事前確定管理、複雑性削除
+    /// 型安全Consumer管理 - Pool削除、直接管理、型安全性強化版
+    /// 設計理由: EF風API、事前確定管理、型安全性確保
     /// </summary>
     public class KafkaConsumerManager : IDisposable
     {
-        private readonly IAvroSerializationManager<object> _serializerManager;
         private readonly KsqlDslOptions _options;
         private readonly ILogger? _logger;
         private readonly ILoggerFactory? _loggerFactory;
         private readonly ConcurrentDictionary<Type, object> _consumers = new();
+        private readonly ConcurrentDictionary<Type, object> _serializationManagers = new();
+        private readonly Lazy<ConfluentSchemaRegistry.ISchemaRegistryClient> _schemaRegistryClient;
         private bool _disposed = false;
 
         public KafkaConsumerManager(
-            IAvroSerializationManager<object> serializerManager,
             IOptions<KsqlDslOptions> options,
             ILoggerFactory? loggerFactory = null)
         {
-            _serializerManager = serializerManager ?? throw new ArgumentNullException(nameof(serializerManager));
             _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
             _logger = loggerFactory.CreateLoggerOrNull<KafkaConsumerManager>();
             _loggerFactory = loggerFactory;
-            _logger?.LogInformation("Simplified KafkaConsumerManager initialized");
+
+            // SchemaRegistryClientの遅延初期化
+            _schemaRegistryClient = new Lazy<ConfluentSchemaRegistry.ISchemaRegistryClient>(CreateSchemaRegistryClient);
+
+            _logger?.LogInformation("Type-safe KafkaConsumerManager initialized");
         }
 
         /// <summary>
         /// 型安全Consumer取得 - 事前確定・キャッシュ
         /// </summary>
-        public async Task<IKafkaConsumer<T>> GetConsumerAsync<T>(KafkaSubscriptionOptions? options = null) where T : class
+        public async Task<IKafkaConsumer<T, object>> GetConsumerAsync<T>(KafkaSubscriptionOptions? options = null) where T : class
         {
             var entityType = typeof(T);
-            var cacheKey = $"{entityType.Name}_{options?.GroupId ?? "default"}";
 
             if (_consumers.TryGetValue(entityType, out var cachedConsumer))
             {
-                return (IKafkaConsumer<T>)cachedConsumer;
+                return (IKafkaConsumer<T, object>)cachedConsumer;
             }
 
             try
@@ -65,24 +69,18 @@ namespace KsqlDsl.Messaging.Consumers
                 var config = BuildConsumerConfig(topicName, options);
                 var rawConsumer = new ConsumerBuilder<object, object>(config).Build();
 
-                // Avroデシリアライザー取得
-                var deserializerPair = await _serializerManager.GetDeserializersAsync();
-                var keyDeserializer = deserializerPair.KeyDeserializer;
-                var valueDeserializer = deserializerPair.ValueDeserializer;
+                // 型安全なシリアライゼーションマネージャー取得
+                var serializationManager = GetOrCreateSerializationManager<T>();
+                var deserializerPair = await serializationManager.GetDeserializersAsync();
 
-                // null チェック
-                if (keyDeserializer == null || valueDeserializer == null)
-                {
-                    throw new InvalidOperationException($"Failed to create deserializers for {typeof(T).Name}");
-                }
                 // 統合Consumer作成
-                var consumer = new KafkaConsumer<T>(
+                var consumer = new KafkaConsumer<T, object>(
                     rawConsumer,
-                    keyDeserializer,
-                    valueDeserializer,
+                    deserializerPair.KeyDeserializer,
+                    deserializerPair.ValueDeserializer,
                     topicName,
                     entityModel,
-                   _loggerFactory);
+                    _loggerFactory);
 
                 _consumers.TryAdd(entityType, consumer);
 
@@ -173,16 +171,92 @@ namespace KsqlDsl.Messaging.Consumers
             }, cancellationToken);
         }
 
+        /// <summary>
+        /// 型安全なシリアライゼーションマネージャー取得
+        /// </summary>
+        private IAvroSerializationManager<T> GetOrCreateSerializationManager<T>() where T : class
+        {
+            var entityType = typeof(T);
+
+            if (_serializationManagers.TryGetValue(entityType, out var existingManager))
+            {
+                return (IAvroSerializationManager<T>)existingManager;
+            }
+
+            var newManager = new AvroSerializationManager<T>(_schemaRegistryClient.Value, _loggerFactory);
+            _serializationManagers.TryAdd(entityType, newManager);
+
+            _logger?.LogDebug("Created SerializationManager for {EntityType}", entityType.Name);
+            return newManager;
+        }
+
+        /// <summary>
+        /// SchemaRegistryClient作成
+        /// </summary>
+        private ConfluentSchemaRegistry.ISchemaRegistryClient CreateSchemaRegistryClient()
+        {
+            var config = new ConfluentSchemaRegistry.SchemaRegistryConfig
+            {
+                Url = _options.SchemaRegistry.Url,
+                MaxCachedSchemas = _options.SchemaRegistry.MaxCachedSchemas,
+                RequestTimeoutMs = _options.SchemaRegistry.RequestTimeoutMs
+            };
+
+            // Basic認証設定
+            if (!string.IsNullOrEmpty(_options.SchemaRegistry.BasicAuthUserInfo))
+            {
+                config.BasicAuthUserInfo = _options.SchemaRegistry.BasicAuthUserInfo;
+                config.BasicAuthCredentialsSource = (ConfluentSchemaRegistry.AuthCredentialsSource)_options.SchemaRegistry.BasicAuthCredentialsSource;
+            }
+
+            // SSL設定
+            if (!string.IsNullOrEmpty(_options.SchemaRegistry.SslCaLocation))
+            {
+                config.SslCaLocation = _options.SchemaRegistry.SslCaLocation;
+                config.SslKeystoreLocation = _options.SchemaRegistry.SslKeystoreLocation;
+                config.SslKeystorePassword = _options.SchemaRegistry.SslKeystorePassword;
+            }
+
+            // 追加プロパティ
+            foreach (var kvp in _options.SchemaRegistry.AdditionalProperties)
+            {
+                config.Set(kvp.Key, kvp.Value);
+            }
+
+            _logger?.LogDebug("Created SchemaRegistryClient with URL: {Url}", config.Url);
+            return new ConfluentSchemaRegistry.CachedSchemaRegistryClient(config);
+        }
+
+        /// <summary>
+        /// EntityModel作成（簡略実装）
+        /// </summary>
         private EntityModel GetEntityModel<T>() where T : class
         {
-            // 簡略実装 - 実際の実装ではModelBuilderから取得
+            var entityType = typeof(T);
+            var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
+            var allProperties = entityType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
+
+            // Key プロパティをOrder順にソート
+            Array.Sort(keyProperties, (p1, p2) =>
+            {
+                var order1 = p1.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+                var order2 = p2.GetCustomAttribute<KeyAttribute>()?.Order ?? 0;
+                return order1.CompareTo(order2);
+            });
+
             return new EntityModel
             {
-                EntityType = typeof(T),
-                TopicAttribute = new TopicAttribute(typeof(T).Name)
+                EntityType = entityType,
+                TopicAttribute = topicAttribute,
+                KeyProperties = keyProperties,
+                AllProperties = allProperties
             };
         }
 
+        /// <summary>
+        /// Consumer設定構築
+        /// </summary>
         private ConsumerConfig BuildConsumerConfig(string topicName, KafkaSubscriptionOptions? subscriptionOptions)
         {
             var topicConfig = _options.Topics.TryGetValue(topicName, out var config)
@@ -204,10 +278,6 @@ namespace KsqlDsl.Messaging.Consumers
                 FetchMaxBytes = topicConfig.Consumer.FetchMaxBytes,
                 IsolationLevel = Enum.Parse<IsolationLevel>(topicConfig.Consumer.IsolationLevel)
             };
-            foreach (var kvp in topicConfig.Consumer.AdditionalProperties)
-            {
-                consumerConfig.Set(kvp.Key, kvp.Value);
-            }
 
             // 購読オプション適用
             if (subscriptionOptions != null)
@@ -220,12 +290,6 @@ namespace KsqlDsl.Messaging.Consumers
                     consumerConfig.HeartbeatIntervalMs = (int)subscriptionOptions.HeartbeatInterval.Value.TotalMilliseconds;
                 if (subscriptionOptions.MaxPollInterval.HasValue)
                     consumerConfig.MaxPollIntervalMs = (int)subscriptionOptions.MaxPollInterval.Value.TotalMilliseconds;
-            }
-
-            // 追加設定適用
-            foreach (var kvp in topicConfig.Consumer.AdditionalProperties)
-            {
-                consumerConfig.Set(kvp.Key, kvp.Value);
             }
 
             // セキュリティ設定
@@ -248,15 +312,25 @@ namespace KsqlDsl.Messaging.Consumers
                 }
             }
 
+            // 追加設定適用
+            foreach (var kvp in topicConfig.Consumer.AdditionalProperties)
+            {
+                consumerConfig.Set(kvp.Key, kvp.Value);
+            }
+
             return consumerConfig;
         }
 
+        /// <summary>
+        /// リソース解放
+        /// </summary>
         public void Dispose()
         {
             if (!_disposed)
             {
-                _logger?.LogInformation("Disposing simplified KafkaConsumerManager...");
+                _logger?.LogInformation("Disposing type-safe KafkaConsumerManager...");
 
+                // Consumerの解放
                 foreach (var consumer in _consumers.Values)
                 {
                     if (consumer is IDisposable disposable)
@@ -266,8 +340,24 @@ namespace KsqlDsl.Messaging.Consumers
                 }
                 _consumers.Clear();
 
+                // SerializationManagerの解放
+                foreach (var manager in _serializationManagers.Values)
+                {
+                    if (manager is IDisposable disposable)
+                    {
+                        disposable.Dispose();
+                    }
+                }
+                _serializationManagers.Clear();
+
+                // SchemaRegistryClientの解放
+                if (_schemaRegistryClient.IsValueCreated)
+                {
+                    _schemaRegistryClient.Value?.Dispose();
+                }
+
                 _disposed = true;
-                _logger?.LogInformation("KafkaConsumerManager disposed");
+                _logger?.LogInformation("Type-safe KafkaConsumerManager disposed");
             }
         }
     }

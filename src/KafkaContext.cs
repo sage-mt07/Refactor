@@ -4,8 +4,6 @@ using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Core.Context;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Messaging.Consumers;
-using KsqlDsl.Messaging.Producers;
-using KsqlDsl.Serialization.Avro.Management;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -19,25 +17,18 @@ namespace KsqlDsl
     /// </summary>
     public abstract class KafkaContext : KafkaContextCore
     {
-        // 上位層サービス（Phase1移行対応）
         private readonly KafkaProducerManager _producerManager;
         private readonly KafkaConsumerManager _consumerManager;
 
-
-        private AvroSchemaRegistrationService? _schemaRegistrationService;
-        private readonly Lazy<ModelBuilder> _modelBuilder;
-
+        private readonly ModelBuilder _modelBuilder;
         protected KafkaContext() : base()
         {
-            _modelBuilder = new Lazy<ModelBuilder>(() => new ModelBuilder(Options.ValidationMode));
-
+            _modelBuilder = new ModelBuilder(ValidationMode.Strict); // デフォルト値
             _producerManager = new KafkaProducerManager(
-                null!, // TODO: DI完了後に修正
                 Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
                 null);
 
             _consumerManager = new KafkaConsumerManager(
-                null!, // TODO: DI完了後に修正
                 Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
                 null);
         }
@@ -45,12 +36,10 @@ namespace KsqlDsl
         protected KafkaContext(KafkaContextOptions options) : base(options)
         {
             _producerManager = new KafkaProducerManager(
-              null!, // TODO: DI完了後に修正
               Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
               null);
 
             _consumerManager = new KafkaConsumerManager(
-                null!, // TODO: DI完了後に修正
                 Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
                 null);
         }
@@ -66,16 +55,6 @@ namespace KsqlDsl
         // Core層統合API
         internal KafkaProducerManager GetProducerManager() => _producerManager;
         internal KafkaConsumerManager GetConsumerManager() => _consumerManager;
-
-        // GetModelBuilderメソッドの追加
-        private ModelBuilder GetModelBuilder()
-        {
-            return _modelBuilder.Value;
-        }
-
-
-
-
 
         protected override void Dispose(bool disposing)
         {
@@ -151,10 +130,6 @@ namespace KsqlDsl
                 throw new InvalidOperationException($"Core層統合: Entity送信失敗 - {typeof(T).Name}", ex);
             }
         }
-
-       
-
-       
     }
 
 }
