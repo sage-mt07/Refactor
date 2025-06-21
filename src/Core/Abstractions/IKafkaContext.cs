@@ -10,7 +10,7 @@ namespace KsqlDsl.Core.Abstractions;
 /// KafkaContextの抽象定義
 /// DbContext風の統一インターフェース
 /// </summary>
-internal interface IKafkaContext : IDisposable, IAsyncDisposable
+public interface IKafkaContext : IDisposable, IAsyncDisposable
 {
     IEntitySet<T> Set<T>() where T : class;
     object GetEventSet(Type entityType);

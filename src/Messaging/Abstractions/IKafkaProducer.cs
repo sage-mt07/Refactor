@@ -29,10 +29,7 @@ namespace KsqlDsl.Messaging.Abstractions
         /// </summary>
         Task<KafkaBatchDeliveryResult> SendBatchAsync(IEnumerable<T> messages, KafkaMessageContext? context = null, CancellationToken cancellationToken = default);
 
-        /// <summary>
-        /// 設定・統計情報取得
-        /// </summary>
-        KafkaProducerStats GetStats();
+ 
 
         /// <summary>
         /// 保留中メッセージのフラッシュ

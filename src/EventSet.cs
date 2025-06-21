@@ -1,6 +1,5 @@
-﻿using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Query.EventSets;
-using KsqlDsl.Query.Linq;
+﻿using KsqlDsl.Application;
+using KsqlDsl.Core.Abstractions;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -303,21 +302,92 @@ namespace KsqlDsl
         }
 
         // 抽象メソッド（上位層で実装）
-        protected virtual async Task SendEntityAsync(T entity, CancellationToken cancellationToken)
+        protected override async Task SendEntityAsync(T entity, CancellationToken cancellationToken)
         {
-            await Task.Delay(1, cancellationToken);
-            throw new NotImplementedException("SendEntityAsync must be implemented by concrete EventSet");
+            try
+            {
+                // 簡素化：直接ProducerManagerを使用
+                var producerManager = _kafkaContext.GetProducerManager();
+                await producerManager.SendAsync(entity, cancellationToken);
+
+                if (ShouldLogDebug())
+                {
+                    var topicName = GetTopicName();
+                    Console.WriteLine($"[DEBUG] EventSet.SendEntityAsync: {typeof(T).Name} → {topicName} - 簡素化統合");
+                }
+            }
+            catch (Exception ex)
+            {
+                var topicName = GetTopicName();
+                if (ShouldLogDebug())
+                {
+                    Console.WriteLine($"[ERROR] EventSet.SendEntityAsync failed: {typeof(T).Name} → {topicName}: {ex.Message}");
+                }
+                throw new InvalidOperationException($"Failed to send {typeof(T).Name} to topic '{topicName}'", ex);
+            }
         }
 
-        protected virtual async Task SendEntitiesAsync(IEnumerable<T> entities, CancellationToken cancellationToken)
+        protected override async Task SendEntitiesAsync(IEnumerable<T> entities, CancellationToken cancellationToken)
         {
-            await Task.Delay(1, cancellationToken);
-            throw new NotImplementedException("SendEntitiesAsync must be implemented by concrete EventSet");
+            try
+            {
+                // 簡素化：直接ProducerManagerを使用
+                var producerManager = _kafkaContext.GetProducerManager();
+                await producerManager.SendRangeAsync(entities, cancellationToken);
+
+                if (ShouldLogDebug())
+                {
+                    var topicName = GetTopicName();
+                    var count = entities.Count();
+                    Console.WriteLine($"[DEBUG] EventSet.SendEntitiesAsync: {count}件の{typeof(T).Name} → {topicName} - 簡素化統合");
+                }
+            }
+            catch (Exception ex)
+            {
+                var topicName = GetTopicName();
+                var count = entities.Count();
+                if (ShouldLogDebug())
+                {
+                    Console.WriteLine($"[ERROR] EventSet.SendEntitiesAsync failed: {count}件の{typeof(T).Name} → {topicName}: {ex.Message}");
+                }
+                throw new InvalidOperationException($"Failed to send batch of {count} {typeof(T).Name} to topic '{topicName}'", ex);
+            }
         }
 
-        protected virtual List<T> ExecuteQuery(string ksqlQuery)
+        protected override List<T> ExecuteQuery(string ksqlQuery)
         {
-            throw new NotImplementedException("ExecuteQuery must be implemented by concrete EventSet");
+            try
+            {
+                // 簡素化：基本的なConsumer使用
+                var consumerManager = _kafkaContext.GetConsumerManager();
+
+                // Pull Query風の実装（簡略化）
+                var options = new KafkaFetchOptions
+                {
+                    MaxRecords = 100,
+                    Timeout = TimeSpan.FromSeconds(30)
+                };
+
+                var results = consumerManager.FetchAsync<T>(options, CancellationToken.None).GetAwaiter().GetResult();
+
+                if (ShouldLogDebug())
+                {
+                    var topicName = GetTopicName();
+                    Console.WriteLine($"[INFO] EventSet.ExecuteQuery: {results.Count}件取得 {typeof(T).Name} ← {topicName} - 簡素化統合");
+                    Console.WriteLine($"[DEBUG] Generated KSQL: {ksqlQuery}");
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                var topicName = GetTopicName();
+                if (ShouldLogDebug())
+                {
+                    Console.WriteLine($"[ERROR] EventSet.ExecuteQuery failed: {typeof(T).Name} ← {topicName}: {ex.Message}");
+                }
+                throw new InvalidOperationException($"Failed to query topic '{topicName}' for {typeof(T).Name}: {ex.Message}", ex);
+            }
         }
 
         // Factory Methods - 具象クラスでオーバーライド

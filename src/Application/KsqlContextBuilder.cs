@@ -67,7 +67,7 @@ namespace KsqlDsl.Application
             return _options;
         }
 
-        public T BuildContext<T>() where T : KsqlContext
+        public T BuildContext<T>() where T : KafkaContext
         {
             var options = Build();
             return (T)Activator.CreateInstance(typeof(T), options)!;

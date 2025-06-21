@@ -2,7 +2,6 @@
 using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Messaging.Producers.Core;
-using KsqlDsl.Monitoring.Abstractions.Models;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -38,10 +37,6 @@ namespace KsqlDsl.Messaging.Abstractions
         /// </summary>
         Task SeekAsync(TopicPartitionOffset offset);
 
-        /// <summary>
-        /// 統計・状態情報取得
-        /// </summary>
-        KafkaConsumerStats GetStats();
 
         /// <summary>
         /// 割り当てパーティション取得

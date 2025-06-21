@@ -1,505 +1,215 @@
-﻿using KsqlDsl.Core.Abstractions;
+﻿using Confluent.Kafka;
+using KsqlDsl.Configuration;
+using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Core.Extensions;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Configuration;
 using KsqlDsl.Messaging.Producers.Core;
-using KsqlDsl.Messaging.Producers.Exception;
-using KsqlDsl.Messaging.Producers.Pool;
-using KsqlDsl.Monitoring.Abstractions;
-using KsqlDsl.Monitoring.Abstractions.Models;
-using KsqlDsl.Monitoring.Diagnostics;
+using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace KsqlDsl.Messaging.Producers;
-
-/// <summary>
-/// Producer管理・ライフサイクル制御
-/// 設計理由：複数トピック・エンティティへの効率的Producer配布
-/// 既存EnhancedAvroSerializerManagerとの統合により型安全なシリアライゼーション実現
-/// </summary>
-public class KafkaProducerManager : IDisposable
+namespace KsqlDsl.Messaging.Producers
 {
-    private readonly EnhancedAvroSerializerManager _serializerManager;
-    private readonly ProducerPool _producerPool;
-    private readonly KafkaProducerConfig _config;
-    private readonly ILogger<KafkaProducerManager> _logger;
-
-    // Producer統計・パフォーマンス追跡
-    private readonly ConcurrentDictionary<Type, ProducerEntityStats> _entityStats = new();
-    private readonly ProducerPerformanceStats _performanceStats = new();
-    private bool _disposed = false;
-
-    public KafkaProducerManager(
-        EnhancedAvroSerializerManager serializerManager,
-        ProducerPool producerPool,
-        IOptions<KafkaProducerConfig> config,
-        ILogger<KafkaProducerManager> logger)
-    {
-        _serializerManager = serializerManager ?? throw new ArgumentNullException(nameof(serializerManager));
-        _producerPool = producerPool ?? throw new ArgumentNullException(nameof(producerPool));
-        _config = config?.Value ?? throw new ArgumentNullException(nameof(config));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-        _logger.LogInformation("KafkaProducerManager initialized with pool config: Min={MinSize}, Max={MaxSize}",
-            _producerPool.MinPoolSize, _producerPool.MaxPoolSize);
-    }
-
     /// <summary>
-    /// 型安全Producer取得
-    /// 設計理由：型ごとの最適化されたProducerインスタンス提供、プールからの効率的取得
+    /// 簡素化Producer管理 - Pool削除、直接管理
+    /// 設計理由: EF風API、事前確定管理、複雑性削除
     /// </summary>
-    public async Task<IKafkaProducer<T>> GetProducerAsync<T>() where T : class
+    public class KafkaProducerManager : IDisposable
     {
-        var entityType = typeof(T);
-        var stopwatch = Stopwatch.StartNew();
+        private readonly IAvroSerializationManager<object> _serializerManager;
+        private readonly KsqlDslOptions _options;
+        private readonly ILogger? _logger;
+        private readonly ConcurrentDictionary<Type, object> _producers = new();
+        private bool _disposed = false;
 
-        try
+        public KafkaProducerManager(
+            IAvroSerializationManager<object> serializerManager,
+            IOptions<KsqlDslOptions> options,
+            ILoggerFactory? loggerFactory = null)
         {
-            // EntityModelから設定情報取得（既存実装活用）
-            var entityModel = GetEntityModel<T>();
-            var topicName = entityModel.TopicAttribute?.TopicName ?? entityType.Name;
+            _serializerManager = serializerManager ?? throw new ArgumentNullException(nameof(serializerManager));
+            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+            _logger = loggerFactory.CreateLoggerOrNull<KafkaProducerManager>();
 
-            // Producer設定構築
-            var producerKey = new ProducerKey(entityType, topicName, _config.GetKeyHash());
-
-            // プールからProducer取得
-            var rawProducer = _producerPool.RentProducer(producerKey);
-
-            // Avroシリアライザー取得（既存実装活用）
-            var (keySerializer, valueSerializer) = await _serializerManager.CreateSerializersAsync<T>(entityModel);
-
-            // 型安全Producerラッパー作成
-            var typedProducer = new KafkaProducer<T>(
-                rawProducer,
-                keySerializer,
-                valueSerializer,
-                topicName,
-                entityModel,
-                this,
-                _logger);
-
-            stopwatch.Stop();
-
-            // 統計更新
-            RecordProducerCreation<T>(stopwatch.Elapsed);
-
-            _logger.LogDebug("Producer created for {EntityType} -> {TopicName} ({Duration}ms)",
-                entityType.Name, topicName, stopwatch.ElapsedMilliseconds);
-
-            return typedProducer;
+            _logger?.LogInformation("Simplified KafkaProducerManager initialized");
         }
-        catch (System.Exception ex)
+
+        /// <summary>
+        /// 型安全Producer取得 - 事前確定・キャッシュ
+        /// </summary>
+        public async Task<IKafkaProducer<T>> GetProducerAsync<T>() where T : class
         {
-            stopwatch.Stop();
+            var entityType = typeof(T);
 
-            _logger.LogError(ex, "Failed to create producer for {EntityType} ({Duration}ms)",
-                entityType.Name, stopwatch.ElapsedMilliseconds);
-
-            // 失敗統計更新
-            RecordProducerCreationFailure<T>(stopwatch.Elapsed, ex);
-
-            throw new KafkaProducerManagerException($"Failed to create producer for {entityType.Name}", ex);
-        }
-    }
-
-    /// <summary>
-    /// Producer返却
-    /// 設計理由：プールへの効率的な返却、リソース再利用
-    /// </summary>
-    public void ReturnProducer<T>(IKafkaProducer<T> producer) where T : class
-    {
-        if (producer == null) return;
-
-        try
-        {
-            if (producer is KafkaProducer<T> typedProducer)
+            if (_producers.TryGetValue(entityType, out var cachedProducer))
             {
-                var producerKey = new ProducerKey(typeof(T), typedProducer.TopicName, _config.GetKeyHash());
-                _producerPool.ReturnProducer(producerKey, typedProducer.RawProducer);
+                return (IKafkaProducer<T>)cachedProducer;
+            }
 
-                _logger.LogTrace("Producer returned to pool: {EntityType} -> {TopicName}",
-                    typeof(T).Name, typedProducer.TopicName);
+            try
+            {
+                var entityModel = GetEntityModel<T>();
+                var topicName = entityModel.TopicAttribute?.TopicName ?? entityType.Name;
+
+                // Confluent.Kafka Producer作成
+                var config = BuildProducerConfig(topicName);
+                var rawProducer = new ProducerBuilder<object, object>(config).Build();
+
+                // Avroシリアライザー取得
+                var (keySerializer, valueSerializer) = await _serializerManager.CreateSerializersAsync<T>(entityModel);
+
+                // 統合Producer作成
+                var producer = new KafkaProducer<T>(
+                    rawProducer,
+                    keySerializer,
+                    valueSerializer,
+                    topicName,
+                    entityModel,
+                    _logger?.Factory);
+
+                _producers.TryAdd(entityType, producer);
+
+                _logger?.LogDebug("Producer created: {EntityType} -> {TopicName}", entityType.Name, topicName);
+                return producer;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Failed to create producer: {EntityType}", entityType.Name);
+                throw;
             }
         }
-        catch (System.Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to return producer to pool: {EntityType}", typeof(T).Name);
-            // プール返却失敗は致命的でないため、エラーは記録のみ
-        }
-    }
-    public async Task ProduceAsync<T>(T entity, EntityModel entityModel, CancellationToken cancellationToken = default) where T : class
-    {
-        if (entity == null)
-            throw new ArgumentNullException(nameof(entity));
-        if (entityModel == null)
-            throw new ArgumentNullException(nameof(entityModel));
 
-        var producer = await GetProducerAsync<T>();
-        try
+        /// <summary>
+        /// エンティティ送信 - EventSetから使用
+        /// </summary>
+        public async Task SendAsync<T>(T entity, CancellationToken cancellationToken = default) where T : class
         {
+            if (entity == null)
+                throw new ArgumentNullException(nameof(entity));
+
+            var producer = await GetProducerAsync<T>();
             var context = new KafkaMessageContext
             {
                 MessageId = Guid.NewGuid().ToString(),
                 Tags = new Dictionary<string, object>
                 {
                     ["entity_type"] = typeof(T).Name,
-                    ["topic_name"] = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name,
-                    ["method"] = "ProduceAsync"
+                    ["method"] = "SendAsync"
                 }
             };
 
             await producer.SendAsync(entity, context, cancellationToken);
         }
-        finally
-        {
-            ReturnProducer(producer);
-        }
-    }
-    public async Task SendRangeAsync<T>(IEnumerable<T> entities, EntityModel entityModel, CancellationToken cancellationToken = default) where T : class
-    {
-        if (entities == null)
-            throw new ArgumentNullException(nameof(entities));
-        if (entityModel == null)
-            throw new ArgumentNullException(nameof(entityModel));
 
-        var entityList = entities.ToList();
-        if (entityList.Count == 0)
-            return;
-
-        var batchContext = new KafkaMessageContext
+        /// <summary>
+        /// エンティティ一括送信 - EventSetから使用
+        /// </summary>
+        public async Task SendRangeAsync<T>(IEnumerable<T> entities, CancellationToken cancellationToken = default) where T : class
         {
-            MessageId = Guid.NewGuid().ToString(),
-            Tags = new Dictionary<string, object>
+            if (entities == null)
+                throw new ArgumentNullException(nameof(entities));
+
+            var producer = await GetProducerAsync<T>();
+            var context = new KafkaMessageContext
             {
-                ["entity_type"] = typeof(T).Name,
-                ["topic_name"] = entityModel.TopicAttribute?.TopicName ?? entityModel.EntityType.Name,
-                ["method"] = "SendRangeAsync",
-                ["batch_size"] = entityList.Count
-            }
-        };
-
-        var batchResult = await SendBatchOptimizedAsync(entityList, batchContext, cancellationToken);
-
-        if (!batchResult.AllSuccessful)
-        {
-            var failureDetails = string.Join(", ",
-                batchResult.Errors.Select(e => $"Index {e.MessageIndex}: {e.Error?.Reason}"));
-
-            throw new KafkaBatchSendException(
-                $"SendRange failed - {batchResult.FailedCount}/{batchResult.TotalMessages} messages failed. Details: {failureDetails}",
-                batchResult);
-        }
-    }
-    /// <summary>
-    /// バッチ送信最適化
-    /// 設計理由：同一トピック・パーティションのメッセージをグルーピングして効率的送信
-    /// </summary>
-    public async Task<KafkaBatchDeliveryResult> SendBatchOptimizedAsync<T>(
-        IEnumerable<T> messages,
-        KafkaMessageContext? context,
-        CancellationToken cancellationToken = default) where T : class
-    {
-        if (messages == null)
-            throw new ArgumentNullException(nameof(messages));
-
-        var messageList = messages.ToList();
-        if (messageList.Count == 0)
-            return new KafkaBatchDeliveryResult { FailedCount = 0 };
-
-        var stopwatch = Stopwatch.StartNew();
-        var producer = await GetProducerAsync<T>();
-
-        try
-        {
-            // バッチ送信実行
-            var result = await producer.SendBatchAsync(messageList, context, cancellationToken);
-            stopwatch.Stop();
-
-            // バッチ統計更新
-            RecordBatchSend<T>(messageList.Count, result.AllSuccessful, stopwatch.Elapsed);
-
-            return result;
-        }
-        finally
-        {
-            ReturnProducer(producer);
-        }
-    }
-
-    /// <summary>
-    /// パフォーマンス統計取得
-    /// 設計理由：運用監視、チューニング指標の提供
-    /// </summary>
-    public ProducerPerformanceStats GetPerformanceStats()
-    {
-        var stats = new ProducerPerformanceStats
-        {
-            TotalMessages = _performanceStats.TotalMessages,
-            TotalBatches = _performanceStats.TotalBatches,
-            SuccessfulMessages = _performanceStats.SuccessfulMessages,
-            FailedMessages = _performanceStats.FailedMessages,
-            AverageLatency = _performanceStats.AverageLatency,
-            ThroughputPerSecond = _performanceStats.ThroughputPerSecond,
-            ActiveProducers = GetActiveProducerCount(),
-            EntityStats = GetEntityStats(),
-            LastUpdated = DateTime.UtcNow
-        };
-
-        return stats;
-    }
-
-    /// <summary>
-    /// 健全性ステータス取得
-    /// 設計理由：障害検出、自動復旧判断のための情報提供
-    /// </summary>
-    public async Task<ProducerHealthStatus> GetHealthStatusAsync()
-    {
-        try
-        {
-            var poolHealth = await _producerPool.GetHealthStatusAsync();
-            var stats = GetPerformanceStats();
-
-            var status = new ProducerHealthStatus
-            {
-                HealthLevel = DetermineHealthLevel(poolHealth, stats),
-                ActiveProducers = stats.ActiveProducers,
-                PoolHealth = poolHealth,
-                PerformanceStats = stats,
-                Issues = new List<ProducerHealthIssue>(),
-                LastCheck = DateTime.UtcNow
+                MessageId = Guid.NewGuid().ToString(),
+                Tags = new Dictionary<string, object>
+                {
+                    ["entity_type"] = typeof(T).Name,
+                    ["method"] = "SendRangeAsync"
+                }
             };
 
-            // 健全性問題検出
-            if (stats.FailureRate > 0.1) // 10%以上の失敗率
-            {
-                status.Issues.Add(new ProducerHealthIssue
-                {
-                    Type = ProducerHealthIssueType.HighFailureRate,
-                    Description = $"High failure rate: {stats.FailureRate:P2}",
-                    Severity = ProducerIssueSeverity.Warning
-                });
-            }
-
-            if (stats.AverageLatency.TotalMilliseconds > _config.HealthThresholds.MaxAverageLatencyMs)
-            {
-                status.Issues.Add(new ProducerHealthIssue
-                {
-                    Type = ProducerHealthIssueType.HighLatency,
-                    Description = $"High average latency: {stats.AverageLatency.TotalMilliseconds:F0}ms",
-                    Severity = ProducerIssueSeverity.Warning
-                });
-            }
-
-            return status;
+            await producer.SendBatchAsync(entities, context, cancellationToken);
         }
-        catch (System.Exception ex)
+
+        private EntityModel GetEntityModel<T>() where T : class
         {
-            _logger.LogError(ex, "Failed to get producer health status");
-            return new ProducerHealthStatus
+            // 簡略実装 - 実際の実装ではModelBuilderから取得
+            return new EntityModel
             {
-                HealthLevel = ProducerHealthLevel.Critical,
-                Issues = new List<ProducerHealthIssue>
-                {
-                    new() {
-                        Type = ProducerHealthIssueType.HealthCheckFailure,
-                        Description = $"Health check failed: {ex.Message}",
-                        Severity = ProducerIssueSeverity.Critical
-                    }
-                },
-                LastCheck = DateTime.UtcNow
+                EntityType = typeof(T),
+                TopicAttribute = new TopicAttribute(typeof(T).Name)
             };
         }
-    }
 
-    /// <summary>
-    /// 診断情報取得
-    /// 設計理由：トラブルシューティング支援
-    /// </summary>
-    public ProducerDiagnostics GetDiagnostics()
-    {
-        return new ProducerDiagnostics
+        private ProducerConfig BuildProducerConfig(string topicName)
         {
-            Configuration = _config,
-            PerformanceStats = GetPerformanceStats(),
-            PoolDiagnostics = _producerPool.GetDiagnostics(),
-            EntityStatistics = GetEntityStats(),
-            SystemMetrics = new Dictionary<string, object>
+            var topicConfig = _options.Topics.TryGetValue(topicName, out var config)
+                ? config
+                : new TopicSection();
+
+            var producerConfig = new ProducerConfig
             {
-                ["ActiveProducers"] = GetActiveProducerCount(),
-                ["TotalEntityTypes"] = _entityStats.Count,
-                ["ConfigurationHash"] = _config.GetKeyHash()
-            }
-        };
-    }
+                BootstrapServers = _options.Common.BootstrapServers,
+                ClientId = _options.Common.ClientId,
+                Acks = Enum.Parse<Acks>(topicConfig.Producer.Acks),
+                CompressionType = Enum.Parse<CompressionType>(topicConfig.Producer.CompressionType),
+                EnableIdempotence = topicConfig.Producer.EnableIdempotence,
+                MaxInFlight = topicConfig.Producer.MaxInFlightRequestsPerConnection,
+                LingerMs = topicConfig.Producer.LingerMs,
+                BatchSize = topicConfig.Producer.BatchSize,
+                DeliveryTimeoutMs = topicConfig.Producer.DeliveryTimeoutMs,
+                RetryBackoffMs = topicConfig.Producer.RetryBackoffMs,
+                Retries = topicConfig.Producer.Retries,
+                BufferMemory = topicConfig.Producer.BufferMemory
+            };
 
-    /// <summary>
-    /// アクティブProducer数取得
-    /// </summary>
-    public int GetActiveProducerCount() => _producerPool.GetActiveProducerCount();
-
-    // プライベートヘルパーメソッド
-
-    private EntityModel GetEntityModel<T>() where T : class
-    {
-        // 実際の実装では、ModelBuilderまたはキャッシュから取得
-        // ここでは簡略実装
-        return new EntityModel
-        {
-            EntityType = typeof(T),
-            TopicAttribute = new TopicAttribute(typeof(T).Name)
-        };
-    }
-
-    private void RecordProducerCreation<T>(TimeSpan duration)
-    {
-        var entityType = typeof(T);
-        var stats = _entityStats.GetOrAdd(entityType, _ => new ProducerEntityStats { EntityType = entityType });
-
-        lock (stats)
-        {
-            stats.ProducersCreated++;
-            stats.TotalCreationTime += duration;
-            stats.AverageCreationTime = TimeSpan.FromTicks(stats.TotalCreationTime.Ticks / stats.ProducersCreated);
-            stats.LastActivity = DateTime.UtcNow;
-        }
-
-        // 全体統計更新
-        Interlocked.Increment(ref _performanceStats.TotalProducersCreated);
-    }
-
-    private void RecordProducerCreationFailure<T>(TimeSpan duration, System.Exception ex)
-    {
-        var entityType = typeof(T);
-        var stats = _entityStats.GetOrAdd(entityType, _ => new ProducerEntityStats { EntityType = entityType });
-
-        lock (stats)
-        {
-            stats.CreationFailures++;
-            stats.LastFailure = DateTime.UtcNow;
-            stats.LastFailureReason = ex.Message;
-        }
-
-        Interlocked.Increment(ref _performanceStats.ProducerCreationFailures);
-    }
-
-    private void RecordBatchSend<T>(int messageCount, bool successful, TimeSpan duration)
-    {
-        var entityType = typeof(T);
-        var stats = _entityStats.GetOrAdd(entityType, _ => new ProducerEntityStats { EntityType = entityType });
-
-        lock (stats)
-        {
-            stats.TotalMessages += messageCount;
-            stats.TotalBatches++;
-
-            if (successful)
+            // 追加設定適用
+            foreach (var kvp in topicConfig.Producer.AdditionalProperties)
             {
-                stats.SuccessfulMessages += messageCount;
-                stats.SuccessfulBatches++;
-            }
-            else
-            {
-                stats.FailedMessages += messageCount;
-                stats.FailedBatches++;
+                producerConfig.Set(kvp.Key, kvp.Value);
             }
 
-            stats.TotalSendTime += duration;
-            stats.AverageSendTime = TimeSpan.FromTicks(stats.TotalSendTime.Ticks / stats.TotalBatches);
-            stats.LastActivity = DateTime.UtcNow;
-        }
-
-        // 全体統計更新
-        lock (_performanceStats)
-        {
-            _performanceStats.TotalMessages += messageCount;
-            _performanceStats.TotalBatches++;
-
-            if (successful)
+            // セキュリティ設定
+            if (_options.Common.SecurityProtocol != SecurityProtocol.Plaintext)
             {
-                _performanceStats.SuccessfulMessages += messageCount;
-            }
-            else
-            {
-                _performanceStats.FailedMessages += messageCount;
-            }
-
-            // スループット計算（直近1分間）
-            var now = DateTime.UtcNow;
-            if (_performanceStats.LastThroughputCalculation == default)
-            {
-                _performanceStats.LastThroughputCalculation = now;
-            }
-            else
-            {
-                var elapsed = now - _performanceStats.LastThroughputCalculation;
-                if (elapsed.TotalSeconds >= 60) // 1分毎に更新
+                producerConfig.SecurityProtocol = _options.Common.SecurityProtocol;
+                if (_options.Common.SaslMechanism.HasValue)
                 {
-                    _performanceStats.ThroughputPerSecond = _performanceStats.TotalMessages / elapsed.TotalSeconds;
-                    _performanceStats.LastThroughputCalculation = now;
+                    producerConfig.SaslMechanism = _options.Common.SaslMechanism.Value;
+                    producerConfig.SaslUsername = _options.Common.SaslUsername;
+                    producerConfig.SaslPassword = _options.Common.SaslPassword;
+                }
+
+                if (!string.IsNullOrEmpty(_options.Common.SslCaLocation))
+                {
+                    producerConfig.SslCaLocation = _options.Common.SslCaLocation;
+                    producerConfig.SslCertificateLocation = _options.Common.SslCertificateLocation;
+                    producerConfig.SslKeyLocation = _options.Common.SslKeyLocation;
+                    producerConfig.SslKeyPassword = _options.Common.SslKeyPassword;
                 }
             }
 
-            // 平均レイテンシ計算
-            if (_performanceStats.TotalBatches > 0)
-            {
-                _performanceStats.AverageLatency = TimeSpan.FromTicks(
-                    stats.TotalSendTime.Ticks / _performanceStats.TotalBatches);
-            }
+            return producerConfig;
         }
-    }
 
-    private ProducerHealthLevel DetermineHealthLevel(PoolHealthStatus poolHealth, ProducerPerformanceStats stats)
-    {
-        // プール健全性を最優先で判定
-        if (poolHealth.HealthLevel == PoolHealthLevel.Critical)
-            return ProducerHealthLevel.Critical;
-
-        // パフォーマンス指標チェック
-        if (stats.FailureRate > 0.2) // 20%以上の失敗率
-            return ProducerHealthLevel.Critical;
-
-        if (stats.AverageLatency.TotalMilliseconds > _config.HealthThresholds.CriticalLatencyMs)
-            return ProducerHealthLevel.Critical;
-
-        // 警告レベルチェック
-        if (poolHealth.HealthLevel == PoolHealthLevel.Warning ||
-            stats.FailureRate > 0.1 ||
-            stats.AverageLatency.TotalMilliseconds > _config.HealthThresholds.MaxAverageLatencyMs)
-            return ProducerHealthLevel.Warning;
-
-        return ProducerHealthLevel.Healthy;
-    }
-
-    private Dictionary<Type, ProducerEntityStats> GetEntityStats()
-    {
-        return new Dictionary<Type, ProducerEntityStats>(_entityStats);
-    }
-
-    public void Dispose()
-    {
-        if (!_disposed)
+        public void Dispose()
         {
-            _logger.LogInformation("Disposing KafkaProducerManager...");
+            if (!_disposed)
+            {
+                _logger?.LogInformation("Disposing simplified KafkaProducerManager...");
 
-            // 統計情報の最終出力
-            var finalStats = GetPerformanceStats();
-            _logger.LogInformation("Final Producer Statistics: Messages={TotalMessages}, Batches={TotalBatches}, SuccessRate={SuccessRate:P2}",
-                finalStats.TotalMessages, finalStats.TotalBatches, 1.0 - finalStats.FailureRate);
+                foreach (var producer in _producers.Values)
+                {
+                    if (producer is IDisposable disposable)
+                    {
+                        disposable.Dispose();
+                    }
+                }
+                _producers.Clear();
 
-            _producerPool?.Dispose();
-            _entityStats.Clear();
-
-            _disposed = true;
-            _logger.LogInformation("KafkaProducerManager disposed successfully");
+                _disposed = true;
+                _logger?.LogInformation("KafkaProducerManager disposed");
+            }
         }
     }
 }

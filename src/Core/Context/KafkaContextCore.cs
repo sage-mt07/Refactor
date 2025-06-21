@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace KsqlDsl.Core.Context;
 
-internal abstract class KafkaContextCore : IKafkaContext
+public abstract class KafkaContextCore : IKafkaContext
 {
     private readonly Dictionary<Type, EntityModel> _entityModels = new();
     private readonly Dictionary<Type, object> _entitySets = new();

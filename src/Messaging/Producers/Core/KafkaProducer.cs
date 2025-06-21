@@ -1,51 +1,48 @@
-﻿// =============================================================================
-// src/Messaging/Producers/Core/KafkaProducer.cs
-// =============================================================================
-
-using Confluent.Kafka;
+﻿using Confluent.Kafka;
 using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Core.Extensions;
 using KsqlDsl.Core.Models;
 using KsqlDsl.Messaging.Abstractions;
+using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Messaging.Producers.Exception;
-using KsqlDsl.Monitoring.Abstractions.Models;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace KsqlDsl.Messaging.Producers.Core
 {
+    /// <summary>
+    /// 統合型安全Producer - TypedKafkaProducer + KafkaProducer統合版
+    /// 設計理由: Pool削除、Confluent.Kafka完全委譲、シンプル化
+    /// </summary>
     public class KafkaProducer<T> : IKafkaProducer<T> where T : class
     {
-        private readonly IProducer<object, object> _rawProducer;
+        private readonly IProducer<object, object> _producer;
         private readonly ISerializer<object> _keySerializer;
         private readonly ISerializer<object> _valueSerializer;
         private readonly EntityModel _entityModel;
-        private readonly ILogger _logger;
-        private readonly KafkaProducerStats _stats = new();
+        private readonly ILogger? _logger;
         private bool _disposed = false;
 
         public string TopicName { get; }
 
-        internal IProducer<object, object> RawProducer => _rawProducer;
-
         public KafkaProducer(
-            IProducer<object, object> rawProducer,
+            IProducer<object, object> producer,
             ISerializer<object> keySerializer,
             ISerializer<object> valueSerializer,
             string topicName,
             EntityModel entityModel,
-            ILogger logger)
+            ILoggerFactory? loggerFactory = null)
         {
-            _rawProducer = rawProducer ?? throw new ArgumentNullException(nameof(rawProducer));
+            _producer = producer ?? throw new ArgumentNullException(nameof(producer));
             _keySerializer = keySerializer ?? throw new ArgumentNullException(nameof(keySerializer));
             _valueSerializer = valueSerializer ?? throw new ArgumentNullException(nameof(valueSerializer));
             TopicName = topicName ?? throw new ArgumentNullException(nameof(topicName));
             _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger = loggerFactory.CreateLoggerOrNull<KafkaProducer<T>>();
         }
 
         public async Task<KafkaDeliveryResult> SendAsync(T message, KafkaMessageContext? context = null, CancellationToken cancellationToken = default)
@@ -53,11 +50,9 @@ namespace KsqlDsl.Messaging.Producers.Core
             if (message == null)
                 throw new ArgumentNullException(nameof(message));
 
-            var stopwatch = Stopwatch.StartNew();
-
             try
             {
-                var keyValue = KeyExtractor.ExtractKey(message, _entityModel);
+                var keyValue = KeyExtractor.ExtractKeyValue(message, _entityModel);
 
                 var kafkaMessage = new Message<object, object>
                 {
@@ -71,10 +66,10 @@ namespace KsqlDsl.Messaging.Producers.Core
                     ? new TopicPartition(TopicName, new Partition(context.TargetPartition.Value))
                     : new TopicPartition(TopicName, Partition.Any);
 
-                var deliveryResult = await _rawProducer.ProduceAsync(topicPartition, kafkaMessage, cancellationToken);
-                stopwatch.Stop();
+                var deliveryResult = await _producer.ProduceAsync(topicPartition, kafkaMessage, cancellationToken);
 
-                UpdateSendStats(success: true, stopwatch.Elapsed);
+                _logger?.LogDebug("Message sent: {EntityType} -> {Topic}, Partition: {Partition}, Offset: {Offset}",
+                    typeof(T).Name, deliveryResult.Topic, deliveryResult.Partition.Value, deliveryResult.Offset.Value);
 
                 return new KafkaDeliveryResult
                 {
@@ -83,25 +78,13 @@ namespace KsqlDsl.Messaging.Producers.Core
                     Offset = deliveryResult.Offset.Value,
                     Timestamp = deliveryResult.Timestamp.UtcDateTime,
                     Status = deliveryResult.Status,
-                    Latency = stopwatch.Elapsed
+                    Latency = TimeSpan.Zero // Confluent.Kafkaの統計に委譲
                 };
             }
             catch (System.Exception ex)
             {
-                stopwatch.Stop();
-                UpdateSendStats(success: false, stopwatch.Elapsed);
-
-                _logger.LogError(ex, "Failed to send message: {EntityType}", typeof(T).Name);
-
-                return new KafkaDeliveryResult
-                {
-                    Topic = TopicName,
-                    Partition = -1,
-                    Offset = -1,
-                    Timestamp = DateTime.UtcNow,
-                    Status = PersistenceStatus.NotPersisted,
-                    Latency = stopwatch.Elapsed
-                };
+                _logger?.LogError(ex, "Failed to send message: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                throw;
             }
         }
 
@@ -112,7 +95,6 @@ namespace KsqlDsl.Messaging.Producers.Core
 
             var messageList = messages.ToList();
             if (messageList.Count == 0)
-            {
                 return new KafkaBatchDeliveryResult
                 {
                     Topic = TopicName,
@@ -123,99 +105,67 @@ namespace KsqlDsl.Messaging.Producers.Core
                     Errors = new List<BatchDeliveryError>(),
                     TotalLatency = TimeSpan.Zero
                 };
-            }
 
-            var stopwatch = Stopwatch.StartNew();
             var results = new List<KafkaDeliveryResult>();
             var errors = new List<BatchDeliveryError>();
 
-            try
+            var tasks = messageList.Select(async (message, index) =>
             {
-                var tasks = messageList.Select(async (message, index) =>
+                try
                 {
-                    try
-                    {
-                        var result = await SendAsync(message, context, cancellationToken);
-                        return new { Index = index, Result = result, Error = (Error?)null };
-                    }
-                    catch (System.Exception ex)
-                    {
-                        return new { Index = index, Result = (KafkaDeliveryResult?)null, Error = new Error(ErrorCode.Local_Application, ex.Message, false) };
-                    }
-                });
-
-                var taskResults = await Task.WhenAll(tasks);
-                stopwatch.Stop();
-
-                foreach (var taskResult in taskResults)
-                {
-                    if (taskResult.Error != null)
-                    {
-                        errors.Add(new BatchDeliveryError
-                        {
-                            MessageIndex = taskResult.Index,
-                            Error = taskResult.Error,
-                            OriginalMessage = messageList[taskResult.Index]
-                        });
-                    }
-                    else if (taskResult.Result != null)
-                    {
-                        results.Add(taskResult.Result);
-                    }
+                    var result = await SendAsync(message, context, cancellationToken);
+                    return new { Index = index, Result = result, Error = (Error?)null };
                 }
-
-                return new KafkaBatchDeliveryResult
+                catch (ProduceException<object, object> ex)
                 {
-                    Topic = TopicName,
-                    TotalMessages = messageList.Count,
-                    SuccessfulCount = results.Count,
-                    FailedCount = errors.Count,
-                    Results = results,
-                    Errors = errors,
-                    TotalLatency = stopwatch.Elapsed
-                };
-            }
-            catch (System.Exception ex)
-            {
-                stopwatch.Stop();
+                    return new { Index = index, Result = (KafkaDeliveryResult?)null, Error = ex.Error };
+                }
+            });
 
-                _logger.LogError(ex, "Failed to send batch: {EntityType}", typeof(T).Name);
-                throw;
+            var taskResults = await Task.WhenAll(tasks);
+
+            foreach (var taskResult in taskResults)
+            {
+                if (taskResult.Error != null)
+                {
+                    errors.Add(new BatchDeliveryError
+                    {
+                        MessageIndex = taskResult.Index,
+                        Error = taskResult.Error,
+                        OriginalMessage = messageList[taskResult.Index]
+                    });
+                }
+                else if (taskResult.Result != null)
+                {
+                    results.Add(taskResult.Result);
+                }
             }
+
+            return new KafkaBatchDeliveryResult
+            {
+                Topic = TopicName,
+                TotalMessages = messageList.Count,
+                SuccessfulCount = results.Count,
+                FailedCount = errors.Count,
+                Results = results,
+                Errors = errors,
+                TotalLatency = TimeSpan.Zero // Confluent.Kafkaの統計に委譲
+            };
         }
 
-        // ✅ 不足していたGetStats()メソッドを実装
-        public KafkaProducerStats GetStats()
-        {
-            lock (_stats)
-            {
-                return new KafkaProducerStats
-                {
-                    TotalMessagesSent = _stats.TotalMessagesSent,
-                    SuccessfulMessages = _stats.SuccessfulMessages,
-                    FailedMessages = _stats.FailedMessages,
-                    AverageLatency = _stats.AverageLatency,
-                    MinLatency = _stats.MinLatency,
-                    MaxLatency = _stats.MaxLatency,
-                    LastMessageSent = _stats.LastMessageSent,
-                    TotalBytesSent = _stats.TotalBytesSent,
-                    MessagesPerSecond = _stats.MessagesPerSecond
-                };
-            }
-        }
 
-        // ✅ 不足していたFlushAsync()メソッドを実装
+
         public async Task FlushAsync(TimeSpan timeout)
         {
             try
             {
-                _rawProducer.Flush(timeout);
+                _producer.Flush(timeout);
                 await Task.Delay(1);
-                _logger.LogTrace("Producer flushed: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                _logger?.LogTrace("Producer flushed: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
             }
             catch (System.Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to flush producer: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                _logger?.LogWarning(ex, "Failed to flush producer: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
                 throw;
             }
         }
@@ -234,38 +184,7 @@ namespace KsqlDsl.Messaging.Producers.Core
                     headers.Add(kvp.Key, valueBytes);
                 }
             }
-
             return headers;
-        }
-
-        private void UpdateSendStats(bool success, TimeSpan latency)
-        {
-            lock (_stats)
-            {
-                _stats.TotalMessagesSent++;
-
-                if (success)
-                    _stats.SuccessfulMessages++;
-                else
-                    _stats.FailedMessages++;
-
-                if (_stats.MinLatency == TimeSpan.Zero || latency < _stats.MinLatency)
-                    _stats.MinLatency = latency;
-                if (latency > _stats.MaxLatency)
-                    _stats.MaxLatency = latency;
-
-                if (_stats.TotalMessagesSent == 1)
-                {
-                    _stats.AverageLatency = latency;
-                }
-                else
-                {
-                    var totalMs = _stats.AverageLatency.TotalMilliseconds * (_stats.TotalMessagesSent - 1) + latency.TotalMilliseconds;
-                    _stats.AverageLatency = TimeSpan.FromMilliseconds(totalMs / _stats.TotalMessagesSent);
-                }
-
-                _stats.LastMessageSent = DateTime.UtcNow;
-            }
         }
 
         public void Dispose()
@@ -274,12 +193,12 @@ namespace KsqlDsl.Messaging.Producers.Core
             {
                 try
                 {
-                    _rawProducer?.Flush(TimeSpan.FromSeconds(10));
-                    _rawProducer?.Dispose();
+                    _producer?.Flush(TimeSpan.FromSeconds(5));
+                    _producer?.Dispose();
                 }
                 catch (System.Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error disposing producer: {EntityType}", typeof(T).Name);
+                    _logger?.LogWarning(ex, "Error disposing producer: {EntityType}", typeof(T).Name);
                 }
                 _disposed = true;
             }
