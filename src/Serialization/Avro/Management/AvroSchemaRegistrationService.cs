@@ -1,6 +1,7 @@
 ﻿using KsqlDsl.Configuration;
 using KsqlDsl.Core.Abstractions;
 using KsqlDsl.Serialization.Avro.Core;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,175 +10,104 @@ using ConfluentSchemaRegistry = Confluent.SchemaRegistry;
 
 namespace KsqlDsl.Serialization.Avro.Management
 {
-    public class AvroSchemaRegistrationService
+    public class AvroSchemaRegistrationService : IAvroSchemaRegistrationService
     {
-        // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientを使用
-        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient? _schemaRegistryClient;
-        private readonly ValidationMode _validationMode;
-        private readonly bool _enableDebugLogging;
+        private readonly ConfluentSchemaRegistry.ISchemaRegistryClient _schemaRegistryClient;
+        private readonly ILoggerFactory? _loggerFactory;
+        private readonly ILogger<AvroSchemaRegistrationService> _logger;
+        private readonly Dictionary<Type, AvroSchemaInfo> _registeredSchemas = new();
 
         public AvroSchemaRegistrationService(
-            ConfluentSchemaRegistry.ISchemaRegistryClient? schemaRegistryClient,
-            ValidationMode validationMode,
-            bool enableDebugLogging = false)
+            ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
+            ILoggerFactory? loggerFactory = null)
         {
-            _schemaRegistryClient = schemaRegistryClient;
-            _validationMode = validationMode;
-            _enableDebugLogging = enableDebugLogging;
+            _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
+            _loggerFactory = loggerFactory;
+            _logger = loggerFactory.CreateLoggerOrNull<AvroSchemaRegistrationService>();
+        }> _logger;
+        private readonly Dictionary<Type, AvroSchemaInfo> _registeredSchemas = new();
+
+        public AvroSchemaRegistrationService(
+            ConfluentSchemaRegistry.ISchemaRegistryClient schemaRegistryClient,
+            ILogger<AvroSchemaRegistrationService> logger)
+        {
+            _schemaRegistryClient = schemaRegistryClient ?? throw new ArgumentNullException(nameof(schemaRegistryClient));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public async Task RegisterAllSchemasAsync(Dictionary<Type, EntityModel> entityModels)
+        public async Task RegisterAllSchemasAsync(IReadOnlyDictionary<Type, AvroEntityConfiguration> configurations)
         {
-            if (_schemaRegistryClient == null)
-            {
-                if (_enableDebugLogging)
-                    Console.WriteLine("[DEBUG] Schema Registry client not configured, skipping schema registration");
-                return;
-            }
-
-            if (_enableDebugLogging)
-                Console.WriteLine($"[DEBUG] Starting Avro schema registration for {entityModels.Count} entities");
-
+            var startTime = DateTime.UtcNow;
             var registrationTasks = new List<Task>();
 
-            foreach (var kvp in entityModels)
+            foreach (var (entityType, config) in configurations)
             {
-                var entityType = kvp.Key;
-                var entityModel = kvp.Value;
-
-                if (!entityModel.IsValid)
-                {
-                    if (_validationMode == ValidationMode.Strict)
-                        throw new InvalidOperationException($"Cannot register schema for invalid entity model: {entityType.Name}");
-
-                    if (_enableDebugLogging)
-                        Console.WriteLine($"[DEBUG] Skipping schema registration for invalid entity: {entityType.Name}");
-                    continue;
-                }
-
-                var task = RegisterEntitySchemaAsync(entityType, entityModel);
-                registrationTasks.Add(task);
+                registrationTasks.Add(RegisterEntitySchemaAsync(entityType, config));
             }
 
             await Task.WhenAll(registrationTasks);
 
-            if (_enableDebugLogging)
-                Console.WriteLine($"[DEBUG] Completed Avro schema registration for all entities");
+            var duration = DateTime.UtcNow - startTime;
+            _logger.LogInformationWithLegacySupport(_loggerFactory, false,
+                "AVRO schema registration completed: {Count} entities in {Duration}ms",
+                configurations.Count, duration.TotalMilliseconds);
         }
 
-        private async Task RegisterEntitySchemaAsync(Type entityType, EntityModel entityModel)
+        private async Task RegisterEntitySchemaAsync(Type entityType, AvroEntityConfiguration config)
         {
             try
             {
-                var topicName = entityModel.TopicAttribute?.TopicName ?? entityType.Name;
+                var topicName = config.TopicName ?? entityType.Name;
 
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] Registering Avro schemas for {entityType.Name} → Topic: {topicName}");
+                var keySchema = AvroSchemaGenerator.GenerateKeySchema(entityType, config);
+                var valueSchema = AvroSchemaGenerator.GenerateValueSchema(entityType, config);
 
-                var keySchemaId = await RegisterKeySchemaAsync(entityType, entityModel, topicName);
-                var valueSchemaId = await RegisterValueSchemaAsync(entityType, topicName);
+                var keySchemaId = await RegisterSchemaAsync($"{topicName}-key", keySchema);
+                var valueSchemaId = await RegisterSchemaAsync($"{topicName}-value", valueSchema);
 
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] Successfully registered schemas for {entityType.Name}: Key={keySchemaId}, Value={valueSchemaId}");
+                _registeredSchemas[entityType] = new AvroSchemaInfo
+                {
+                    EntityType = entityType,
+                    TopicName = topicName,
+                    KeySchemaId = keySchemaId,
+                    ValueSchemaId = valueSchemaId,
+                    KeySchema = keySchema,
+                    ValueSchema = valueSchema,
+                    RegisteredAt = DateTime.UtcNow
+                };
+
+                _logger.LogDebugWithLegacySupport(_loggerFactory, false,
+                    "Schema registered: {EntityType} → {Topic} (Key: {KeyId}, Value: {ValueId})",
+                    entityType.Name, topicName, keySchemaId, valueSchemaId);
             }
             catch (Exception ex)
             {
-                if (_validationMode == ValidationMode.Strict)
-                    throw new InvalidOperationException($"Failed to register Avro schemas for entity {entityType.Name}: {ex.Message}", ex);
-
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] Schema registration failed for {entityType.Name}: {ex.Message}");
+                _logger.LogErrorWithLegacySupport(ex, _loggerFactory, false,
+                    "Schema registration failed: {EntityType}", entityType.Name);
+                throw new AvroSchemaRegistrationException($"Failed to register schema for {entityType.Name}", ex);
             }
         }
 
-        private async Task<int> RegisterKeySchemaAsync(Type entityType, EntityModel entityModel, string topicName)
+        private async Task<int> RegisterSchemaAsync(string subject, string avroSchema)
         {
-            var keyProperties = entityModel.KeyProperties;
-
-            string keySchema;
-            if (keyProperties.Length == 0)
-            {
-                keySchema = SchemaGenerator.GenerateKeySchema<string>();
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] No key properties found for {entityType.Name}, using default string key");
-            }
-            else if (keyProperties.Length == 1)
-            {
-                var keyProperty = keyProperties[0];
-                keySchema = SchemaGenerator.GenerateKeySchema(keyProperty.PropertyType);
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] Single key property: {keyProperty.Name} ({keyProperty.PropertyType.Name})");
-            }
-            else
-            {
-                var compositeKeyType = CreateCompositeKeyType(keyProperties);
-                keySchema = SchemaGenerator.GenerateKeySchema(compositeKeyType);
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] Composite key with {keyProperties.Length} properties");
-            }
-
-            // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientの標準メソッドを使用
-            var subject = $"{topicName}-key";
-            var schema = new ConfluentSchemaRegistry.Schema(keySchema, ConfluentSchemaRegistry.SchemaType.Avro);
-            return await _schemaRegistryClient!.RegisterSchemaAsync(subject, schema);
+            var schema = new ConfluentSchemaRegistry.Schema(avroSchema, ConfluentSchemaRegistry.SchemaType.Avro);
+            return await _schemaRegistryClient.RegisterSchemaAsync(subject, schema);
         }
 
-        private async Task<int> RegisterValueSchemaAsync(Type entityType, string topicName)
+        public async Task<AvroSchemaInfo> GetSchemaInfoAsync<T>() where T : class
         {
-            var valueSchema = SchemaGenerator.GenerateSchema(entityType, new SchemaGenerationOptions
+            var entityType = typeof(T);
+            if (_registeredSchemas.TryGetValue(entityType, out var schemaInfo))
             {
-                CustomName = $"{topicName}_value",
-                Namespace = $"{entityType.Namespace}.Avro",
-                Documentation = $"Avro schema for {entityType.Name} topic: {topicName}",
-                PrettyFormat = false
-            });
-
-            // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientの標準メソッドを使用
-            var subject = $"{topicName}-value";
-            var schema = new ConfluentSchemaRegistry.Schema(valueSchema, ConfluentSchemaRegistry.SchemaType.Avro);
-            return await _schemaRegistryClient!.RegisterSchemaAsync(subject, schema);
+                return schemaInfo;
+            }
+            throw new InvalidOperationException($"Schema not registered for type: {entityType.Name}");
         }
 
-        private Type CreateCompositeKeyType(System.Reflection.PropertyInfo[] keyProperties)
+        public async Task<List<AvroSchemaInfo>> GetAllRegisteredSchemasAsync()
         {
-            return typeof(Dictionary<string, object>);
-        }
-
-        public async Task<List<string>> GetRegisteredSchemasAsync()
-        {
-            if (_schemaRegistryClient == null)
-                return new List<string>();
-
-            try
-            {
-                var subjects = await _schemaRegistryClient.GetAllSubjectsAsync();
-                return subjects.ToList();
-            }
-            catch (Exception ex)
-            {
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] Failed to get registered schemas: {ex.Message}");
-                return new List<string>();
-            }
-        }
-
-        public async Task<bool> CheckSchemaCompatibilityAsync(string subject, string schema)
-        {
-            if (_schemaRegistryClient == null)
-                return false;
-
-            try
-            {
-                // ✅ 修正: Confluent.SchemaRegistry.ISchemaRegistryClientの標準メソッドを使用
-                var schemaObj = new ConfluentSchemaRegistry.Schema(schema, ConfluentSchemaRegistry.SchemaType.Avro);
-                return await _schemaRegistryClient.IsCompatibleAsync(subject, schemaObj);
-            }
-            catch (Exception ex)
-            {
-                if (_enableDebugLogging)
-                    Console.WriteLine($"[DEBUG] Schema compatibility check failed for {subject}: {ex.Message}");
-                return false;
-            }
+            await Task.CompletedTask;
+            return new List<AvroSchemaInfo>(_registeredSchemas.Values);
         }
     }
 }

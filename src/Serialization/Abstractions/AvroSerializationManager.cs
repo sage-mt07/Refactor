@@ -1,5 +1,4 @@
 ﻿using KsqlDsl.Serialization.Avro.Cache;
-using KsqlDsl.Serialization.Avro.Core;
 using KsqlDsl.Serialization.Avro.Management;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
