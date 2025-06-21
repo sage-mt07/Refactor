@@ -5,7 +5,7 @@ using System.Reflection;
 
 namespace KsqlDsl.Core.Extensions
 {
-    public static class CoreExtensions
+    internal static class CoreExtensions
     {
         /// <summary>
         /// EntityModel拡張メソッド

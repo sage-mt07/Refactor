@@ -12,7 +12,7 @@ namespace KsqlDsl.Query.Abstractions;
 /// EventSet操作の共通インターフェース
 /// 設計理由：EventSet分割に対する統一API
 /// </summary>
-public interface IEventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : class
+internal interface IEventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : class
 {
     // Core Operations
     Task AddAsync(T entity, CancellationToken cancellationToken = default);
@@ -38,5 +38,5 @@ public interface IEventSet<T> : IQueryable<T>, IAsyncEnumerable<T> where T : cla
     // Metadata Access
     string GetTopicName();
     EntityModel GetEntityModel();
-    KafkaContext GetContext();
+    IKafkaContext GetContext();
 }

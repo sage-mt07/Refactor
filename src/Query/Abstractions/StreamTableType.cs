@@ -1,4 +1,4 @@
-﻿namespace KsqlDsl.Query.Abstructions;
+﻿namespace KsqlDsl.Query.Abstractions;
 
 internal enum StreamTableType
 {
