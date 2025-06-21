@@ -1,5 +1,8 @@
-﻿using KsqlDsl.Application;
+﻿using KsqlDsl;
+using KsqlDsl.Application;
+using KsqlDsl.Configuration.Abstractions;
 using KsqlDsl.Core.Abstractions;
+using KsqlDsl.Query.Pipeline;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -8,8 +11,8 @@ using System.Linq.Expressions;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace KsqlDsl
-{
+namespace KsqlDsl;
+
     /// <summary>
     /// Core層IEntitySet<T>実装
     /// 設計理由：Core抽象化との統合、既存API互換性維持
@@ -26,15 +29,15 @@ namespace KsqlDsl
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
             _expression = Expression.Constant(this);
-            _provider = new EventQueryProvider<T>(context, entityModel);
-        }
+            _provider = new SimpleQueryProvider();
+    }
 
         public EventSet(IKafkaContext context, EntityModel entityModel, Expression expression)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
             _expression = expression ?? throw new ArgumentNullException(nameof(expression));
-            _provider = new EventQueryProvider<T>(context, entityModel);
+            _provider = new SimpleQueryProvider();
         }
 
         // IQueryable<T> implementation
@@ -152,8 +155,23 @@ namespace KsqlDsl
             try
             {
                 var topicName = GetTopicName();
-                var translator = new LinqToKsqlTranslator();
-                return translator.Translate(_expression, topicName, isPullQuery);
+
+                // 簡素化実装：基本的なKSQL生成
+                var queryType = isPullQuery ? "SELECT" : "CREATE STREAM";
+                var baseQuery = $"{queryType} * FROM {topicName}";
+
+                // 簡単なWhere句解析（将来のQuery層実装まで）
+                if (_expression is MethodCallExpression methodCall && methodCall.Method.Name == "Where")
+                {
+                    baseQuery += " WHERE /* 条件解析は Query層実装後 */";
+                }
+
+                if (ShouldLogDebug())
+                {
+                    Console.WriteLine($"[DEBUG] Generated KSQL: {baseQuery}");
+                }
+
+                return baseQuery;
             }
             catch (Exception ex)
             {
@@ -302,12 +320,13 @@ namespace KsqlDsl
         }
 
         // 抽象メソッド（上位層で実装）
-        protected override async Task SendEntityAsync(T entity, CancellationToken cancellationToken)
+        protected virtual async Task SendEntityAsync(T entity, CancellationToken cancellationToken)
         {
             try
             {
-                // 簡素化：直接ProducerManagerを使用
-                var producerManager = _kafkaContext.GetProducerManager();
+                // IKafkaContextをKafkaContextにキャスト
+                var kafkaContext = (KafkaContext)_context;
+                var producerManager = kafkaContext.GetProducerManager();
                 await producerManager.SendAsync(entity, cancellationToken);
 
                 if (ShouldLogDebug())
@@ -326,13 +345,13 @@ namespace KsqlDsl
                 throw new InvalidOperationException($"Failed to send {typeof(T).Name} to topic '{topicName}'", ex);
             }
         }
-
-        protected override async Task SendEntitiesAsync(IEnumerable<T> entities, CancellationToken cancellationToken)
+        protected virtual async Task SendEntitiesAsync(IEnumerable<T> entities, CancellationToken cancellationToken)
         {
             try
             {
                 // 簡素化：直接ProducerManagerを使用
-                var producerManager = _kafkaContext.GetProducerManager();
+                var kafkaContext = (KafkaContext)_context;
+                var producerManager = kafkaContext.GetProducerManager();
                 await producerManager.SendRangeAsync(entities, cancellationToken);
 
                 if (ShouldLogDebug())
@@ -354,12 +373,12 @@ namespace KsqlDsl
             }
         }
 
-        protected override List<T> ExecuteQuery(string ksqlQuery)
+        protected virtual List<T> ExecuteQuery(string ksqlQuery)
         {
             try
             {
-                // 簡素化：基本的なConsumer使用
-                var consumerManager = _kafkaContext.GetConsumerManager();
+                var kafkaContext = (KafkaContext)_context;
+                var consumerManager = kafkaContext.GetConsumerManager();
 
                 // Pull Query風の実装（簡略化）
                 var options = new KafkaFetchOptions
@@ -491,5 +510,36 @@ namespace KsqlDsl
             var keyCount = _entityModel.KeyProperties.Length;
             return $"EventSet<{typeof(T).Name}> → Topic: {topicName}, Keys: {keyCount} [Core層統合]";
         }
+
+    // 簡素化QueryProvider追加
+    private class SimpleQueryProvider : IQueryProvider
+    {
+        public IQueryable CreateQuery(Expression expression)
+        {
+            throw new NotSupportedException("Generic CreateQuery not supported");
+        }
+
+        public IQueryable<TElement> CreateQuery<TElement>(Expression expression) 
+        {
+            // TODO: Phase 2統合時に実装
+            // - Query層のQueryExecutionPipelineと統合
+            // - 適切な依存関係注入の設計
+            // - EventSet.csコンストラクタの見直し
+            throw new NotSupportedException(
+                "Complex LINQ queries require ToList() or ToListAsync(). " +
+                "Full Query layer integration will be implemented in Phase 2.");
+        }
+
+        public object Execute(Expression expression)
+        {
+            throw new NotSupportedException("Execute not supported");
+        }
+
+        public TResult Execute<TResult>(Expression expression)
+        {
+            throw new NotSupportedException("Execute not supported");
+        }
     }
 }
+
+

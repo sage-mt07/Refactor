@@ -27,6 +27,7 @@ namespace KsqlDsl.Messaging.Producers
         private readonly IAvroSerializationManager<object> _serializerManager;
         private readonly KsqlDslOptions _options;
         private readonly ILogger? _logger;
+        private readonly ILoggerFactory _loggerFactory;
         private readonly ConcurrentDictionary<Type, object> _producers = new();
         private bool _disposed = false;
 
@@ -38,7 +39,7 @@ namespace KsqlDsl.Messaging.Producers
             _serializerManager = serializerManager ?? throw new ArgumentNullException(nameof(serializerManager));
             _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
             _logger = loggerFactory.CreateLoggerOrNull<KafkaProducerManager>();
-
+            _loggerFactory = loggerFactory;
             _logger?.LogInformation("Simplified KafkaProducerManager initialized");
         }
 
@@ -64,8 +65,15 @@ namespace KsqlDsl.Messaging.Producers
                 var rawProducer = new ProducerBuilder<object, object>(config).Build();
 
                 // Avroシリアライザー取得
-                var (keySerializer, valueSerializer) = await _serializerManager.CreateSerializersAsync<T>(entityModel);
+                var serializerPair = await _serializerManager.GetSerializersAsync();
+                var keySerializer = serializerPair.KeySerializer;
+                var valueSerializer = serializerPair.ValueSerializer;
 
+                // null チェック
+                if (keySerializer == null || valueSerializer == null)
+                {
+                    throw new InvalidOperationException($"Failed to create serializers for {typeof(T).Name}");
+                }
                 // 統合Producer作成
                 var producer = new KafkaProducer<T>(
                     rawProducer,
@@ -73,14 +81,14 @@ namespace KsqlDsl.Messaging.Producers
                     valueSerializer,
                     topicName,
                     entityModel,
-                    _logger?.Factory);
+                    _loggerFactory);
 
                 _producers.TryAdd(entityType, producer);
 
                 _logger?.LogDebug("Producer created: {EntityType} -> {TopicName}", entityType.Name, topicName);
                 return producer;
             }
-            catch (Exception ex)
+            catch (System.Exception ex)
             {
                 _logger?.LogError(ex, "Failed to create producer: {EntityType}", entityType.Name);
                 throw;
@@ -157,10 +165,7 @@ namespace KsqlDsl.Messaging.Producers
                 MaxInFlight = topicConfig.Producer.MaxInFlightRequestsPerConnection,
                 LingerMs = topicConfig.Producer.LingerMs,
                 BatchSize = topicConfig.Producer.BatchSize,
-                DeliveryTimeoutMs = topicConfig.Producer.DeliveryTimeoutMs,
-                RetryBackoffMs = topicConfig.Producer.RetryBackoffMs,
-                Retries = topicConfig.Producer.Retries,
-                BufferMemory = topicConfig.Producer.BufferMemory
+                RetryBackoffMs = topicConfig.Producer.RetryBackoffMs
             };
 
             // 追加設定適用

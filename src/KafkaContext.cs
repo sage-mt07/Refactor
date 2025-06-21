@@ -23,8 +23,9 @@ namespace KsqlDsl
     public abstract class KafkaContext : KafkaContextCore
     {
         // 上位層サービス（Phase1移行対応）
-        private readonly Lazy<KafkaProducerManager> _producerManager;
-        private readonly Lazy<KafkaConsumerManager> _consumerManager;
+        private readonly KafkaProducerManager _producerManager;
+        private readonly KafkaConsumerManager _consumerManager;
+
 
         private AvroSchemaRegistrationService? _schemaRegistrationService;
         private readonly Lazy<ModelBuilder> _modelBuilder;
@@ -33,54 +34,28 @@ namespace KsqlDsl
         {
             _modelBuilder = new Lazy<ModelBuilder>(() => new ModelBuilder(Options.ValidationMode));
 
-            _producerManager = new Lazy<KafkaProducerManager>(() =>
-            {
-                Console.WriteLine("[INFO] Core層統合: KafkaProducerManager初期化");
-                return new KafkaProducerManager(
-                    null!, // EnhancedAvroSerializerManager
-                    null!, // ProducerPool  
-                    Microsoft.Extensions.Options.Options.Create(new KafkaProducerConfig()),
-                    null!  // ILogger
-                );
-            });
+            _producerManager = new KafkaProducerManager(
+                null!, // TODO: DI完了後に修正
+                Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+                null);
 
-            _consumerManager = new Lazy<KafkaConsumerManager>(() =>
-            {
-                Console.WriteLine("[INFO] Core層統合: KafkaConsumerManager初期化");
-                return new KafkaConsumerManager(
-                    null!, // EnhancedAvroSerializerManager
-                    null!, // ConsumerPool
-                    Microsoft.Extensions.Options.Options.Create(new KafkaConsumerConfig()),
-                    null!  // ILogger
-                );
-            });
+            _consumerManager = new KafkaConsumerManager(
+                null!, // TODO: DI完了後に修正
+                Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+                null);
         }
 
         protected KafkaContext(KafkaContextOptions options) : base(options)
         {
-            _modelBuilder = new Lazy<ModelBuilder>(() => new ModelBuilder(Options.ValidationMode));
+            _producerManager = new KafkaProducerManager(
+              null!, // TODO: DI完了後に修正
+              Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+              Options.LoggerFactory);
 
-            _producerManager = new Lazy<KafkaProducerManager>(() =>
-            {
-                Console.WriteLine("[INFO] Core層統合: KafkaProducerManager初期化");
-                return new KafkaProducerManager(
-                    null!, // EnhancedAvroSerializerManager
-                    null!, // ProducerPool  
-                    Microsoft.Extensions.Options.Options.Create(new KafkaProducerConfig()),
-                    null!  // ILogger
-                );
-            });
-
-            _consumerManager = new Lazy<KafkaConsumerManager>(() =>
-            {
-                Console.WriteLine("[INFO] Core層統合: KafkaConsumerManager初期化");
-                return new KafkaConsumerManager(
-                    null!, // EnhancedAvroSerializerManager
-                    null!, // ConsumerPool
-                    Microsoft.Extensions.Options.Options.Create(new KafkaConsumerConfig()),
-                    null!  // ILogger
-                );
-            });
+            _consumerManager = new KafkaConsumerManager(
+                null!, // TODO: DI完了後に修正
+                Microsoft.Extensions.Options.Options.Create(new KsqlDslOptions()),
+                Options.LoggerFactory);
         }
 
         /// <summary>
@@ -92,8 +67,8 @@ namespace KsqlDsl
         }
 
         // Core層統合API
-        internal KafkaProducerManager GetProducerManager() => _producerManager.Value;
-        internal KafkaConsumerManager GetConsumerManager() => _consumerManager.Value;
+        internal KafkaProducerManager GetProducerManager() => _producerManager;
+        internal KafkaConsumerManager GetConsumerManager() => _consumerManager;
 
         // GetModelBuilderメソッドの追加
         private ModelBuilder GetModelBuilder()
@@ -112,98 +87,25 @@ namespace KsqlDsl
                 Console.WriteLine(modelBuilder.GetModelSummary());
             }
 
-            // スキーマ自動登録
-            if (Options.EnableAutoSchemaRegistration)
-            {
-                _schemaRegistrationService = new AvroSchemaRegistrationService(
-                    Options.CustomSchemaRegistryClient,
-                    Options.ValidationMode,
-                    Options.EnableDebugLogging);
-
-                try
-                {
-                    Console.WriteLine("[INFO] Core層統合: Avroスキーマ自動登録開始");
-                    await _schemaRegistrationService.RegisterAllSchemasAsync(GetEntityModels());
-                    Console.WriteLine("[INFO] Core層統合: Avroスキーマ自動登録完了");
-                }
-                catch (Exception ex)
-                {
-                    if (Options.ValidationMode == ValidationMode.Strict)
-                    {
-                        throw new InvalidOperationException($"Core層統合: スキーマ自動登録失敗 - {ex.Message}", ex);
-                    }
-                    else
-                    {
-                        Console.WriteLine($"[WARNING] Core層統合: スキーマ自動登録失敗（Relaxedモードのため続行） - {ex.Message}");
-                    }
-                }
-            }
+        
 
             await Task.Delay(1, cancellationToken);
 
             if (Options.EnableDebugLogging)
             {
                 Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: Core層統合インフラ構築完了");
-                Console.WriteLine(GetCoreDiagnostics());
+              
             }
         }
 
-        public async Task<List<string>> GetRegisteredSchemasAsync()
-        {
-            if (_schemaRegistrationService == null)
-                return new List<string>();
-            return await _schemaRegistrationService.GetRegisteredSchemasAsync();
-        }
 
-        public async Task<bool> CheckEntitySchemaCompatibilityAsync<T>() where T : class
-        {
-            if (_schemaRegistrationService == null)
-                return false;
-
-            var entityModel = GetModelBuilder().GetEntityModel<T>();
-            if (entityModel == null)
-                return false;
-
-            var topicName = entityModel.TopicAttribute?.TopicName ?? typeof(T).Name;
-            var valueSchema = SchemaGenerator.GenerateSchema<T>();
-
-            return await _schemaRegistrationService.CheckSchemaCompatibilityAsync($"{topicName}-value", valueSchema);
-        }
-
-        public string GetCoreDiagnostics()
-        {
-            var diagnostics = new List<string>
-            {
-                "=== Core層統合診断情報 ===",
-                $"Base Context: {base.GetDiagnostics()}",
-                "",
-                "=== 上位層サービス状態 ===",
-                $"ProducerManager: {(_producerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
-                $"ConsumerManager: {(_consumerManager.IsValueCreated ? "初期化済み" : "未初期化")}",
-                $"SchemaRegistration: {(_schemaRegistrationService != null ? "有効" : "無効")}"
-
-            };
-
-            if (Options.TopicOverrideService.GetAllOverrides().Any())
-            {
-                diagnostics.Add("");
-                diagnostics.Add("=== トピック上書き設定 ===");
-                diagnostics.Add(Options.TopicOverrideService.GetOverrideSummary());
-            }
-
-            return string.Join(Environment.NewLine, diagnostics);
-        }
 
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
-                // 上位層サービスの破棄
-                if (_producerManager.IsValueCreated)
-                    _producerManager.Value.Dispose();
-
-                if (_consumerManager.IsValueCreated)
-                    _consumerManager.Value.Dispose();
+                _producerManager.Dispose();
+                _consumerManager.Dispose();
 
 
                 if (Options.EnableDebugLogging)
@@ -216,15 +118,11 @@ namespace KsqlDsl
         protected override async ValueTask DisposeAsyncCore()
         {
             // 上位層サービスの非同期破棄
-            if (_producerManager.IsValueCreated)
-                _producerManager.Value.Dispose();
-
-            if (_consumerManager.IsValueCreated)
-                _consumerManager.Value.Dispose();
+            _producerManager.Dispose();
+            _consumerManager.Dispose();
 
             await base.DisposeAsyncCore();
         }
-
         public override string ToString()
         {
             return $"{base.ToString()} [Core層統合]";
@@ -260,26 +158,18 @@ namespace KsqlDsl
             try
             {
                 var producerManager = _kafkaContext.GetProducerManager();
-                var producer = await producerManager.GetProducerAsync<T>();
 
-                try
+                var context = new KafkaMessageContext
                 {
-                    var context = new KafkaMessageContext
+                    MessageId = Guid.NewGuid().ToString(),
+                    Tags = new Dictionary<string, object>
                     {
-                        MessageId = Guid.NewGuid().ToString(),
-                        Tags = new Dictionary<string, object>
-                        {
-                            ["entity_type"] = typeof(T).Name,
-                            ["method"] = "Core.SendEntityAsync"
-                        }
-                    };
+                        ["entity_type"] = typeof(T).Name,
+                        ["method"] = "Core.SendEntityAsync"
+                    }
+                };
 
-                    await producer.SendAsync(entity, context, cancellationToken);
-                }
-                finally
-                {
-                    producerManager.ReturnProducer(producer);
-                }
+                await producerManager.SendAsync(entity, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -307,17 +197,15 @@ namespace KsqlDsl
                     }
                 };
 
-                var batchResult = await producerManager.SendBatchOptimizedAsync(entities, batchContext, cancellationToken);
-
-                if (!batchResult.AllSuccessful)
+                try
                 {
-                    var failureDetails = string.Join(", ",
-                        batchResult.Errors.Select(e => $"Index {e.MessageIndex}: {e.Error?.Reason}"));
-
-                    throw new KafkaBatchSendException(
-                        $"Core層統合: バッチ送信部分失敗 - {batchResult.FailedCount}/{batchResult.TotalMessages}件失敗. Details: {failureDetails}",
-                        batchResult);
+                    await producerManager.SendRangeAsync(entities, cancellationToken);
                 }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(T).Name}", ex);
+                }
+
             }
             catch (Exception ex) when (!(ex is KafkaBatchSendException))
             {

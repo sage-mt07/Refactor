@@ -9,6 +9,7 @@ using KsqlDsl.Core.Extensions;
 using KsqlDsl.Core.Modeling;
 using KsqlDsl.Messaging.Consumers;
 using KsqlDsl.Messaging.Producers;
+using KsqlDsl.Serialization.Abstractions;
 using KsqlDsl.Serialization.Avro.Abstractions;
 using KsqlDsl.Serialization.Avro.Cache;
 using KsqlDsl.Serialization.Avro.Core;
@@ -101,14 +102,26 @@ public abstract class KafkaContext : KafkaContextCore
         // スキーマ自動登録（簡素化）
         if (Options.EnableAutoSchemaRegistration)
         {
-            _schemaRegistrationService = new AvroSchemaRegistrationService(
-           Options.CustomSchemaRegistryClient,
-           _loggerFactory);
+            if (Options.CustomSchemaRegistryClient != null)
+            {
+                _schemaRegistrationService = new AvroSchemaRegistrationService(
+                   Options.CustomSchemaRegistryClient,
+                   Options.LoggerFactory);
+            }
+            else
+            {
+                var logger = Options.LoggerFactory.CreateLoggerOrNull<KafkaContext>();
+                logger.LogWarningWithLegacySupport(
+                    Options.LoggerFactory, Options.EnableDebugLogging,
+                    "CustomSchemaRegistryClient is null, skipping schema registration");
+            }
 
             try
             {
                 Console.WriteLine("[INFO] 簡素化統合: Avroスキーマ自動登録開始");
-                await _schemaRegistrationService.RegisterAllSchemasAsync(GetEntityModels());
+                var entityModels = GetEntityModels();
+                var avroConfigurations = ConvertToAvroConfigurations(entityModels);
+                await _schemaRegistrationService.RegisterAllSchemasAsync(avroConfigurations);
                 Console.WriteLine("[INFO] 簡素化統合: Avroスキーマ自動登録完了");
             }
             catch (Exception ex)
@@ -132,7 +145,25 @@ public abstract class KafkaContext : KafkaContextCore
             Console.WriteLine(GetSimplifiedDiagnostics());
         }
     }
+    private IReadOnlyDictionary<Type, AvroEntityConfiguration> ConvertToAvroConfigurations(
+    Dictionary<Type, EntityModel> entityModels)
+    {
+        var avroConfigs = new Dictionary<Type, AvroEntityConfiguration>();
 
+        foreach (var kvp in entityModels)
+        {
+            var entityModel = kvp.Value;
+            var avroConfig = new AvroEntityConfiguration(entityModel.EntityType)
+            {
+                TopicName = entityModel.TopicAttribute?.TopicName,
+                KeyProperties = entityModel.KeyProperties
+            };
+
+            avroConfigs[kvp.Key] = avroConfig;
+        }
+
+        return avroConfigs;
+    }
     public string GetSimplifiedDiagnostics()
     {
         var diagnostics = new List<string>

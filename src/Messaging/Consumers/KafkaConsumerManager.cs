@@ -6,9 +6,7 @@ using KsqlDsl.Core.Extensions;
 using KsqlDsl.Messaging.Abstractions;
 using KsqlDsl.Messaging.Configuration;
 using KsqlDsl.Messaging.Consumers.Core;
-using KsqlDsl.Messaging.Producers.Core;
 using KsqlDsl.Serialization.Abstractions;
-using KsqlDsl.Serialization.Avro;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
@@ -29,6 +27,7 @@ namespace KsqlDsl.Messaging.Consumers
         private readonly IAvroSerializationManager<object> _serializerManager;
         private readonly KsqlDslOptions _options;
         private readonly ILogger? _logger;
+        private readonly ILoggerFactory? _loggerFactory;
         private readonly ConcurrentDictionary<Type, object> _consumers = new();
         private bool _disposed = false;
 
@@ -40,7 +39,7 @@ namespace KsqlDsl.Messaging.Consumers
             _serializerManager = serializerManager ?? throw new ArgumentNullException(nameof(serializerManager));
             _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
             _logger = loggerFactory.CreateLoggerOrNull<KafkaConsumerManager>();
-
+            _loggerFactory = loggerFactory;
             _logger?.LogInformation("Simplified KafkaConsumerManager initialized");
         }
 
@@ -67,8 +66,15 @@ namespace KsqlDsl.Messaging.Consumers
                 var rawConsumer = new ConsumerBuilder<object, object>(config).Build();
 
                 // Avroデシリアライザー取得
-                var (keyDeserializer, valueDeserializer) = await _serializerManager.CreateDeserializersAsync<T>(entityModel);
+                var deserializerPair = await _serializerManager.GetDeserializersAsync();
+                var keyDeserializer = deserializerPair.KeyDeserializer;
+                var valueDeserializer = deserializerPair.ValueDeserializer;
 
+                // null チェック
+                if (keyDeserializer == null || valueDeserializer == null)
+                {
+                    throw new InvalidOperationException($"Failed to create deserializers for {typeof(T).Name}");
+                }
                 // 統合Consumer作成
                 var consumer = new KafkaConsumer<T>(
                     rawConsumer,
@@ -76,7 +82,7 @@ namespace KsqlDsl.Messaging.Consumers
                     valueDeserializer,
                     topicName,
                     entityModel,
-                    _logger?.Factory);
+                   _loggerFactory);
 
                 _consumers.TryAdd(entityType, consumer);
 
@@ -195,10 +201,13 @@ namespace KsqlDsl.Messaging.Consumers
                 HeartbeatIntervalMs = topicConfig.Consumer.HeartbeatIntervalMs,
                 MaxPollIntervalMs = topicConfig.Consumer.MaxPollIntervalMs,
                 FetchMinBytes = topicConfig.Consumer.FetchMinBytes,
-                FetchMaxWaitMs = topicConfig.Consumer.FetchMaxWaitMs,
                 FetchMaxBytes = topicConfig.Consumer.FetchMaxBytes,
                 IsolationLevel = Enum.Parse<IsolationLevel>(topicConfig.Consumer.IsolationLevel)
             };
+            foreach (var kvp in topicConfig.Consumer.AdditionalProperties)
+            {
+                consumerConfig.Set(kvp.Key, kvp.Value);
+            }
 
             // 購読オプション適用
             if (subscriptionOptions != null)

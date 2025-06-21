@@ -83,7 +83,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
             }
         }
 
-        public async Task<KafkaBatch<T>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default)
+        public Task<KafkaBatch<T>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default)
         {
             if (options == null)
                 throw new ArgumentNullException(nameof(options));
@@ -133,7 +133,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
                 batch.BatchEndTime = DateTime.UtcNow;
                 batch.Messages = messages;
 
-                return batch;
+                return Task.FromResult(batch);
             }
             catch (Exception ex)
             {
@@ -142,7 +142,6 @@ namespace KsqlDsl.Messaging.Consumers.Core
                 throw;
             }
         }
-
         public async Task CommitAsync()
         {
             try
@@ -176,24 +175,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
             }
         }
 
-        public KafkaConsumerStats GetStats()
-        {
-            // Confluent.Kafkaの統計に完全委譲
-            return new KafkaConsumerStats
-            {
-                TotalMessagesReceived = 0, // Confluent.Kafkaから取得
-                ProcessedMessages = 0,
-                FailedMessages = 0,
-                AverageProcessingTime = TimeSpan.Zero,
-                MinProcessingTime = TimeSpan.Zero,
-                MaxProcessingTime = TimeSpan.Zero,
-                LastMessageReceived = DateTime.MinValue,
-                TotalBytesReceived = 0,
-                MessagesPerSecond = 0,
-                ConsumerLag = new Dictionary<TopicPartition, long>(),
-                AssignedPartitions = GetAssignedPartitions()
-            };
-        }
+
 
         public List<TopicPartition> GetAssignedPartitions()
         {
