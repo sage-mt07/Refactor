@@ -18,7 +18,9 @@ namespace KsqlDsl.Messaging.Consumers.Core
     /// 統合型安全Consumer - TypedKafkaConsumer + KafkaConsumer統合版
     /// 設計理由: Pool削除、Confluent.Kafka完全委譲、シンプル化
     /// </summary>
-    public class KafkaConsumer<T> : IKafkaConsumer<T> where T : class
+    public class KafkaConsumer<TValue, TKey> : IKafkaConsumer<TValue, TKey>
+        where TValue : class
+        where TKey : notnull
     {
         private readonly IConsumer<object, object> _consumer;
         private readonly IDeserializer<object> _keyDeserializer;
@@ -43,16 +45,16 @@ namespace KsqlDsl.Messaging.Consumers.Core
             _valueDeserializer = valueDeserializer ?? throw new ArgumentNullException(nameof(valueDeserializer));
             TopicName = topicName ?? throw new ArgumentNullException(nameof(topicName));
             _entityModel = entityModel ?? throw new ArgumentNullException(nameof(entityModel));
-            _logger = loggerFactory.CreateLoggerOrNull<KafkaConsumer<T>>();
+            _logger = loggerFactory.CreateLoggerOrNull<KafkaConsumer<TValue, TKey>>();
 
             EnsureSubscribed();
         }
 
-        public async IAsyncEnumerable<KafkaMessage<T,K>> ConsumeAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<KafkaMessage<TValue, TKey>> ConsumeAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                KafkaMessage<T,K>? kafkaMessage = null;
+                KafkaMessage<TValue, TKey>? kafkaMessage = null;
 
                 try
                 {
@@ -83,17 +85,17 @@ namespace KsqlDsl.Messaging.Consumers.Core
             }
         }
 
-        public Task<KafkaBatch<T>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default)
+        public Task<KafkaBatch<TValue, TKey>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default)
         {
             if (options == null)
                 throw new ArgumentNullException(nameof(options));
 
-            var batch = new KafkaBatch<T>
+            var batch = new KafkaBatch<TValue, TKey>
             {
                 BatchStartTime = DateTime.UtcNow
             };
 
-            var messages = new List<KafkaMessage<T>>();
+            var messages = new List<KafkaMessage<TValue, TKey>>();
             var endTime = DateTime.UtcNow.Add(options.MaxWaitTime);
 
             try
@@ -126,7 +128,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogWarning(ex, "Failed to deserialize message in batch: {EntityType}", typeof(T).Name);
+                        _logger?.LogWarning(ex, "Failed to deserialize message in batch: {EntityType}", typeof(TValue).Name);
                     }
                 }
 
@@ -138,7 +140,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
             catch (Exception ex)
             {
                 batch.BatchEndTime = DateTime.UtcNow;
-                _logger?.LogError(ex, "Failed to consume batch: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                _logger?.LogError(ex, "Failed to consume batch: {EntityType} -> {Topic}", typeof(TValue).Name, TopicName);
                 throw;
             }
         }
@@ -148,11 +150,11 @@ namespace KsqlDsl.Messaging.Consumers.Core
             {
                 _consumer.Commit();
                 await Task.Delay(1);
-                _logger?.LogTrace("Offset committed: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                _logger?.LogTrace("Offset committed: {EntityType} -> {Topic}", typeof(TValue).Name, TopicName);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to commit offset: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                _logger?.LogError(ex, "Failed to commit offset: {EntityType} -> {Topic}", typeof(TValue).Name, TopicName);
                 throw;
             }
         }
@@ -166,11 +168,11 @@ namespace KsqlDsl.Messaging.Consumers.Core
             {
                 _consumer.Seek(offset);
                 await Task.Delay(1);
-                _logger?.LogInformation("Seeked to offset: {EntityType} -> {TopicPartitionOffset}", typeof(T).Name, offset);
+                _logger?.LogInformation("Seeked to offset: {EntityType} -> {TopicPartitionOffset}", typeof(TValue).Name, offset);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to seek to offset: {EntityType} -> {TopicPartitionOffset}", typeof(T).Name, offset);
+                _logger?.LogError(ex, "Failed to seek to offset: {EntityType} -> {TopicPartitionOffset}", typeof(   TValue).Name, offset);
                 throw;
             }
         }
@@ -186,7 +188,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Failed to get assigned partitions: {EntityType}", typeof(T).Name);
+                _logger?.LogWarning(ex, "Failed to get assigned partitions: {EntityType}", typeof(TValue).Name);
                 return new List<TopicPartition>();
             }
         }
@@ -199,26 +201,26 @@ namespace KsqlDsl.Messaging.Consumers.Core
                 {
                     _consumer.Subscribe(TopicName);
                     _subscribed = true;
-                    _logger?.LogDebug("Subscribed to topic: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                    _logger?.LogDebug("Subscribed to topic: {EntityType} -> {Topic}", typeof(TValue).Name, TopicName);
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Failed to subscribe to topic: {EntityType} -> {Topic}", typeof(T).Name, TopicName);
+                    _logger?.LogError(ex, "Failed to subscribe to topic: {EntityType} -> {Topic}", typeof(TValue).Name, TopicName);
                     throw;
                 }
             }
         }
 
-        private KafkaMessage<T> CreateKafkaMessage(ConsumeResult<object, object> consumeResult)
+        private KafkaMessage<TValue, TKey> CreateKafkaMessage(ConsumeResult<object, object> consumeResult)
         {
             var valueBytes = consumeResult.Message.Value as byte[];
             var message = _valueDeserializer.Deserialize(
                 valueBytes ?? Array.Empty<byte>(),
                 valueBytes == null,
-                new SerializationContext(MessageComponentType.Value, TopicName)) as T;
+                new SerializationContext(MessageComponentType.Value, TopicName)) as TValue;
 
             if (message == null)
-                throw new InvalidOperationException($"Failed to deserialize message to type {typeof(T).Name}");
+                throw new InvalidOperationException($"Failed to deserialize message to type {typeof(TValue).Name}");
 
             var keyBytes = consumeResult.Message.Key as byte[];
             var key = _keyDeserializer.Deserialize(
@@ -226,7 +228,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
                 keyBytes == null,
                 new SerializationContext(MessageComponentType.Key, TopicName));
 
-            return new KafkaMessage<T>
+            return new KafkaMessage<TValue, TKey>
             {
                 Value = message,
                 Key = key,
@@ -285,7 +287,7 @@ namespace KsqlDsl.Messaging.Consumers.Core
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning(ex, "Error disposing consumer: {EntityType}", typeof(T).Name);
+                    _logger?.LogWarning(ex, "Error disposing consumer: {EntityType}", typeof(TValue).Name);
                 }
                 _disposed = true;
             }

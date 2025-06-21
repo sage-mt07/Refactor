@@ -80,22 +80,8 @@ namespace KsqlDsl
         {
             // Core層のモデル構築とスキーマ登録
             var modelBuilder = GetModelBuilder();
-
-            if (Options.EnableDebugLogging)
-            {
-                Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: Core層統合インフラ構築開始");
-                Console.WriteLine(modelBuilder.GetModelSummary());
-            }
-
-        
-
             await Task.Delay(1, cancellationToken);
 
-            if (Options.EnableDebugLogging)
-            {
-                Console.WriteLine("[DEBUG] KafkaContext.EnsureCreatedAsync: Core層統合インフラ構築完了");
-              
-            }
         }
 
 
@@ -108,8 +94,6 @@ namespace KsqlDsl
                 _consumerManager.Dispose();
 
 
-                if (Options.EnableDebugLogging)
-                    Console.WriteLine("[DEBUG] KafkaContext.Dispose: Core層統合リソース解放完了");
             }
 
             base.Dispose(disposing);
@@ -180,7 +164,7 @@ namespace KsqlDsl
         /// <summary>
         /// Core抽象化実装：Producer一括機能
         /// </summary>
-        protected override async Task SendEntitiesAsync(IEnumerable<T> entities, CancellationToken cancellationToken)
+        protected override async Task SendEntitiesAsync(IEnumerable<TValue> entities, CancellationToken cancellationToken)
         {
             try
             {
@@ -203,13 +187,13 @@ namespace KsqlDsl
                 }
                 catch (Exception ex)
                 {
-                    throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(T).Name}", ex);
+                    throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(TValue).Name}", ex);
                 }
 
             }
             catch (Exception ex) when (!(ex is KafkaBatchSendException))
             {
-                throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(T).Name}", ex);
+                throw new InvalidOperationException($"Core層統合: Entity一括送信失敗 - {typeof(TValue).Name}", ex);
             }
         }
 
