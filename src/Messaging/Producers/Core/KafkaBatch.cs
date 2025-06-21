@@ -8,9 +8,12 @@ namespace KsqlDsl.Messaging.Producers.Core
     /// <summary>
     /// バッチコンテナ
     /// </summary>
-    public class KafkaBatch<T> where T : class
+    public class KafkaBatch<TValue, TKey>
+       where TValue : class
+       where TKey : notnull
     {
-        public List<KafkaMessage<T>> Messages { get; set; } = new();
+        public List<KafkaMessage<TValue, TKey>> Messages { get; set; } = new();
+
         public DateTime BatchStartTime { get; set; }
         public DateTime BatchEndTime { get; set; }
         public TimeSpan ProcessingTime => BatchEndTime - BatchStartTime;

@@ -1,37 +1,37 @@
 ﻿using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Core.Extensions;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace KsqlDsl.Core.Context;
 
+/// <summary>
+/// KafkaContext基底実装
+/// 責務: モデル構築、エンティティセット管理
+/// 制約: 完全ログフリー、副作用なし（Phase3 ログフリー版）
+/// ログ処理: Infrastructure層で実装
+/// </summary>
 public abstract class KafkaContextCore : IKafkaContext
 {
     private readonly Dictionary<Type, EntityModel> _entityModels = new();
     private readonly Dictionary<Type, object> _entitySets = new();
     protected readonly KafkaContextOptions Options;
-    private readonly ILogger<KafkaContextCore> _logger;
     private bool _disposed = false;
 
     protected KafkaContextCore()
     {
         Options = new KafkaContextOptions();
-        _logger = NullLogger<KafkaContextCore>.Instance;
         InitializeEntityModels();
     }
 
     protected KafkaContextCore(KafkaContextOptions options)
     {
         Options = options ?? throw new ArgumentNullException(nameof(options));
-        _logger = Options.LoggerFactory.CreateLoggerOrNull<KafkaContextCore>();
         InitializeEntityModels();
     }
 
+    // ✅ IKafkaContext実装: エンティティセット取得（純粋関数）
     public IEntitySet<T> Set<T>() where T : class
     {
         var entityType = typeof(T);
@@ -48,6 +48,7 @@ public abstract class KafkaContextCore : IKafkaContext
         return entitySet;
     }
 
+    // ✅ IKafkaContext実装: 非ジェネリック エンティティセット取得
     public object GetEventSet(Type entityType)
     {
         if (_entitySets.TryGetValue(entityType, out var entitySet))
@@ -56,86 +57,37 @@ public abstract class KafkaContextCore : IKafkaContext
         }
 
         var entityModel = GetOrCreateEntityModel(entityType);
-        var setType = typeof(IEntitySet<>).MakeGenericType(entityType);
         var createdSet = CreateEntitySet(entityType, entityModel);
         _entitySets[entityType] = createdSet;
 
         return createdSet;
     }
 
-    public virtual Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-    {
-        // Core層では基本実装のみ提供
-        return Task.FromResult(0);
-    }
-
-    public virtual int SaveChanges()
-    {
-        // Core層では基本実装のみ提供
-        return 0;
-    }
-
-    public virtual Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
-    {
-        // Core層では基本実装のみ提供
-        _logger?.LogDebug("KafkaContextCore.EnsureCreatedAsync completed");
-        return Task.CompletedTask;
-    }
-
-    public virtual void EnsureCreated()
-    {
-        // Core層では基本実装のみ提供
-        _logger?.LogDebug("KafkaContextCore.EnsureCreated completed");
-    }
-
+    // ✅ IKafkaContext実装: エンティティモデル取得（純粋関数）
     public Dictionary<Type, EntityModel> GetEntityModels()
     {
         return new Dictionary<Type, EntityModel>(_entityModels);
     }
 
-    public virtual string GetDiagnostics()
-    {
-        var diagnostics = new List<string>
-            {
-                "=== KafkaContextCore診断情報 ===",
-                $"エンティティモデル数: {_entityModels.Count}",
-                $"エンティティセット数: {_entitySets.Count}",
-                ""
-            };
+    // ✅ 派生クラスでの実装必須（純粋関数）
+    protected abstract IEntitySet<T> CreateEntitySet<T>(EntityModel entityModel) where T : class;
 
-        if (_entityModels.Count > 0)
-        {
-            diagnostics.Add("=== エンティティモデル ===");
-            foreach (var (type, model) in _entityModels)
-            {
-                var status = model.IsValid ? "✅" : "❌";
-                diagnostics.Add($"{status} {type.Name} → {model.GetTopicName()} (Keys: {model.KeyProperties.Length})");
-            }
-        }
-
-        return string.Join(Environment.NewLine, diagnostics);
-    }
-
-    protected virtual IEntitySet<T> CreateEntitySet<T>(EntityModel entityModel) where T : class
-    {
-        // 具象クラスでオーバーライド
-        throw new NotImplementedException("CreateEntitySet must be implemented by concrete class");
-    }
-
+    // ✅ 内部ヘルパー：リフレクション版エンティティセット作成
     protected virtual object CreateEntitySet(Type entityType, EntityModel entityModel)
     {
-        // リフレクションを使用してジェネリックメソッドを呼び出し
         var method = GetType().GetMethod(nameof(CreateEntitySet), 1, new[] { typeof(EntityModel) });
         var genericMethod = method!.MakeGenericMethod(entityType);
         return genericMethod.Invoke(this, new object[] { entityModel })!;
     }
 
+    // ✅ 内部処理：モデル初期化（副作用なし）
     private void InitializeEntityModels()
     {
         // サブクラスでOnModelCreatingを呼び出すための準備
-        _logger?.LogDebug("Entity models initialization started");
+        // ❌ ログ出力なし: _logger?.LogDebug("Entity models initialization started");
     }
 
+    // ✅ 内部処理：エンティティモデル取得・作成（純粋関数）
     private EntityModel GetOrCreateEntityModel<T>() where T : class
     {
         return GetOrCreateEntityModel(typeof(T));
@@ -153,10 +105,11 @@ public abstract class KafkaContextCore : IKafkaContext
         return entityModel;
     }
 
+    // ✅ 内部処理：型からエンティティモデル作成（純粋関数）
     private EntityModel CreateEntityModelFromType(Type entityType)
     {
         var topicAttribute = entityType.GetCustomAttribute<TopicAttribute>();
-        var allProperties = entityType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        var allProperties = entityType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
         var keyProperties = Array.FindAll(allProperties, p => p.GetCustomAttribute<KeyAttribute>() != null);
 
         var model = new EntityModel
@@ -167,7 +120,7 @@ public abstract class KafkaContextCore : IKafkaContext
             KeyProperties = keyProperties
         };
 
-        // 基本検証
+        // ✅ 基本検証（副作用なし）
         var validation = new ValidationResult { IsValid = true };
 
         if (topicAttribute == null)
@@ -185,6 +138,7 @@ public abstract class KafkaContextCore : IKafkaContext
         return model;
     }
 
+    // ✅ リソース解放（IDisposable実装）
     protected virtual void Dispose(bool disposing)
     {
         if (!_disposed && disposing)
@@ -199,6 +153,8 @@ public abstract class KafkaContextCore : IKafkaContext
             _entitySets.Clear();
             _entityModels.Clear();
             _disposed = true;
+
+            // ❌ ログ出力なし: Options.EnableDebugLogging のチェックも削除
         }
     }
 
@@ -208,6 +164,7 @@ public abstract class KafkaContextCore : IKafkaContext
         GC.SuppressFinalize(this);
     }
 
+    // ✅ 非同期リソース解放（IAsyncDisposable実装）
     public virtual async ValueTask DisposeAsync()
     {
         await DisposeAsyncCore();
@@ -232,6 +189,7 @@ public abstract class KafkaContextCore : IKafkaContext
         await Task.CompletedTask;
     }
 
+    // ✅ デバッグ用（副作用なし）
     public override string ToString()
     {
         return $"KafkaContextCore: {_entityModels.Count} entities, {_entitySets.Count} sets";

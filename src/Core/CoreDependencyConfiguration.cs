@@ -1,6 +1,4 @@
-﻿using KsqlDsl.Configuration;
-using KsqlDsl.Core.Abstractions;
-using KsqlDsl.Core.Services;
+﻿using KsqlDsl.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 
@@ -14,8 +12,7 @@ namespace KsqlDsl.Core
     {
         public static IServiceCollection AddKsqlDslCore(this IServiceCollection services)
         {
-            services.AddSingleton<ICoreIntegrationService, CoreIntegrationService>();
-            services.AddSingleton<IModelBindingService, ModelBindingService>();
+        
             return services;
         }
 
@@ -26,9 +23,8 @@ namespace KsqlDsl.Core
             {
                 typeof(IKafkaContext),
                 typeof(IEntitySet<>),
-                typeof(ISerializationManager<>),
-                typeof(IPoolManager<,>),
-                typeof(IHealthMonitor)
+                typeof(ISerializationManager<>)
+
             };
 
             foreach (var type in coreTypes)

@@ -11,7 +11,7 @@ public interface ISerializationManager<T> : IDisposable where T : class
 {
     Task<SerializerConfiguration<T>> GetConfigurationAsync();
     Task<bool> ValidateAsync(T entity);
-    CoreSerializationStatistics GetStatistics();
+
 
     Type EntityType { get; }
 

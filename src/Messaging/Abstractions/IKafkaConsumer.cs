@@ -15,18 +15,15 @@ namespace KsqlDsl.Messaging.Abstractions
     /// 設計理由：型安全性確保、購読パターンの統一
     /// 既存Avro実装との統合により高性能なデシリアライゼーション実現
     /// </summary>
-    public interface IKafkaConsumer<T> : IDisposable where T : class
+    public interface IKafkaConsumer<TValue, TKey> : IDisposable
+        where TValue : class
+        where TKey : notnull
     {
         /// <summary>
         /// 非同期メッセージストリーム消費
         /// </summary>
-        IAsyncEnumerable<KafkaMessage<T>> ConsumeAsync(CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// バッチ消費
-        /// </summary>
-        Task<KafkaBatch<T>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default);
-
+        IAsyncEnumerable<KafkaMessage<TValue, TKey>> ConsumeAsync(CancellationToken cancellationToken = default);
+        Task<KafkaBatch<TValue, TKey>> ConsumeBatchAsync(KafkaBatchOptions options, CancellationToken cancellationToken = default);
         /// <summary>
         /// オフセットコミット
         /// </summary>

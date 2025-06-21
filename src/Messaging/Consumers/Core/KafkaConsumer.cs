@@ -48,11 +48,11 @@ namespace KsqlDsl.Messaging.Consumers.Core
             EnsureSubscribed();
         }
 
-        public async IAsyncEnumerable<KafkaMessage<T>> ConsumeAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        public async IAsyncEnumerable<KafkaMessage<T,K>> ConsumeAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                KafkaMessage<T>? kafkaMessage = null;
+                KafkaMessage<T,K>? kafkaMessage = null;
 
                 try
                 {
